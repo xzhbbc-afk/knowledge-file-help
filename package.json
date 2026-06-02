@@ -1,0 +1,31 @@
+{
+  "name": "knowledge-file-help",
+  "version": "0.1.0",
+  "description": "Local desktop file knowledge base for categorizing, tagging, searching, and rule-based filing.",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite --config vite.config.ts --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "start": "npm run build && electron .",
+    "build": "vite build --config vite.config.ts && node scripts/check.js"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^31.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^6.4.3",
+    "wait-on": "^9.0.10"
+  },
+  "dependencies": {
+    "@mantine/core": "^9.3.0",
+    "@mantine/hooks": "^9.3.0",
+    "@mantine/modals": "^9.3.0",
+    "@mantine/notifications": "^9.3.0",
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}

@@ -1,0 +1,194 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f6f8fb;
+}
+
+.sidebarShell {
+  padding: 18px 14px;
+  background: #ffffff;
+  border-right: 1px solid #e6e9ef;
+}
+
+.brandBlock {
+  min-height: 46px;
+}
+
+.brandMark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ffffff;
+  font-weight: 900;
+}
+
+.categoryScroll {
+  flex: 1;
+  margin-top: 8px;
+}
+
+.categoryItem {
+  min-height: 36px;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.categoryItem:hover,
+.categoryItem.active {
+  background: #edf7f5;
+}
+
+.categoryButton {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.categoryButton .mantine-Button-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.categoryActions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.categoryItem:hover .categoryActions,
+.categoryItem:focus-within .categoryActions {
+  opacity: 1;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #e6e9ef;
+}
+
+.searchInput {
+  flex: 1;
+  max-width: 760px;
+}
+
+.mainShell {
+  height: 100vh;
+  background: #f6f8fb;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) 420px;
+  gap: 0;
+  height: calc(100vh - 72px);
+}
+
+.fileColumn {
+  min-width: 0;
+  padding: 20px;
+  border-right: 1px solid #e6e9ef;
+}
+
+.tagFilter {
+  width: 180px;
+}
+
+.fileScroll {
+  height: calc(100vh - 172px);
+}
+
+.fileCard {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid #e6e9ef;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.fileCard:hover,
+.fileCard.active {
+  border-color: #64b5aa;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.fileCard.active {
+  background: #f8fffd;
+}
+
+.fileExt {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #eaf1f8;
+  color: #28506f;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.fileCardBody {
+  min-width: 0;
+}
+
+.detailPane {
+  height: calc(100vh - 72px);
+  overflow: auto;
+  padding: 20px;
+  border-radius: 0;
+  border: 0;
+  background: #ffffff;
+}
+
+.detailTitle {
+  min-width: 0;
+}
+
+.detailTitle h3 {
+  overflow-wrap: anywhere;
+}
+
+.emptyState {
+  border: 1px dashed #d7dce5;
+  background: #ffffff;
+  text-align: center;
+}
+
+.detailEmpty {
+  min-height: 220px;
+}
+
+.metaList {
+  font-size: 14px;
+}
+
+.pathText {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1180px) {
+  .contentGrid {
+    grid-template-columns: minmax(360px, 1fr) 360px;
+  }
+}
