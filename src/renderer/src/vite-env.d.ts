@@ -33,6 +33,7 @@ type FileRecord = {
   originalPath?: string;
   storedPath?: string;
   importMode?: ImportMode;
+  targetDirParts?: string[];
 };
 
 type RuleRecord = {
@@ -74,10 +75,15 @@ interface Window {
     save: (data: FileKbStoreData) => Promise<FileKbStoreData>;
     chooseFiles: () => Promise<ChosenFile[]>;
     chooseDirectory: () => Promise<string>;
+    syncCategoryFolders: (payload: {
+      libraryDir: string;
+      categories: CategoryRecord[];
+    }) => Promise<{ ok: boolean }>;
     importToLibrary: (payload: {
       files: ChosenFile[];
       libraryDir: string;
       mode: ImportMode;
+      categories: CategoryRecord[];
     }) => Promise<ImportedFile[]>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;

@@ -149,6 +149,13 @@ export default function App() {
     return `${categoryPath(category.parentId)} / ${category.name}`;
   }
 
+  function categoryDirParts(categoryId: string): string[] {
+    const category = categoryById.get(categoryId);
+    if (!category) return [];
+    if (!category.parentId) return [category.name];
+    return [...categoryDirParts(category.parentId), category.name];
+  }
+
   const categoryOptions = useMemo(
     () => [
       { value: "", label: "未分类" },
@@ -224,7 +231,8 @@ export default function App() {
     try {
       const libraryDir = await window.fileKb.chooseDirectory();
       if (!libraryDir) return;
-      await persist({ ...data, settings: { ...data.settings, libraryDir } });
+      const saved = await persist({ ...data, settings: { ...data.settings, libraryDir } });
+      await window.fileKb.syncCategoryFolders({ libraryDir, categories: saved.categories });
       notifications.show({ title: "知识库目录已保存", message: libraryDir, color: "teal" });
     } catch (error) {
       notifyError("选择知识库目录失败", error);
@@ -298,17 +306,30 @@ export default function App() {
         return;
       }
 
+      const plannedFiles = pendingImportFiles.map((file) => {
+        const suggestion = applyRules(file);
+        return {
+          file: {
+            ...file,
+            targetDirParts: categoryDirParts(suggestion.categoryId)
+          },
+          suggestion
+        };
+      });
+      const suggestionsByOriginalPath = new Map(plannedFiles.map((item) => [item.file.path, item.suggestion]));
+
       const imported = await window.fileKb.importToLibrary({
-        files: pendingImportFiles,
+        files: plannedFiles.map((item) => item.file),
         libraryDir: data.settings.libraryDir,
-        mode: importMode
+        mode: importMode,
+        categories: data.categories
       });
 
       const existingPaths = new Set(data.files.map((file) => file.path));
       const newFiles = imported
         .filter((file) => !existingPaths.has(file.path))
         .map((file) => {
-          const suggestion = applyRules(file);
+          const suggestion = suggestionsByOriginalPath.get(file.originalPath || file.path) || applyRules(file);
           return {
             id: makeId("file"),
             name: file.name,
@@ -396,7 +417,10 @@ export default function App() {
           { id: makeId("cat"), name, parentId: categoryDraft.parentId || null, sortOrder: Date.now() }
         ];
 
-    await persist({ ...data, categories: nextCategories });
+    const saved = await persist({ ...data, categories: nextCategories });
+    if (saved.settings.libraryDir) {
+      await window.fileKb.syncCategoryFolders({ libraryDir: saved.settings.libraryDir, categories: saved.categories });
+    }
     setCategoryModalOpen(false);
   }
 

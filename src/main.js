@@ -19,6 +19,31 @@ function uniqueDestinationPath(directoryPath, fileName) {
   return candidate;
 }
 
+function sanitizePathPart(value) {
+  const cleaned = String(value || "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .trim();
+  return cleaned || "未命名";
+}
+
+function categoryDirParts(categories, categoryId) {
+  const category = categories.find((item) => item.id === categoryId);
+  if (!category) return [];
+  return [...categoryDirParts(categories, category.parentId), sanitizePathPart(category.name)];
+}
+
+function createCategoryFolders(libraryDir, categories) {
+  if (!libraryDir) {
+    throw new Error("请先选择知识库目录。");
+  }
+
+  fs.mkdirSync(libraryDir, { recursive: true });
+  categories.forEach((category) => {
+    const parts = categoryDirParts(categories, category.id);
+    if (parts.length) fs.mkdirSync(path.join(libraryDir, ...parts), { recursive: true });
+  });
+}
+
 function fileMetaFromPath(filePath, extra = {}) {
   const stats = fs.statSync(filePath);
   return {
@@ -108,10 +133,18 @@ ipcMain.handle("dirs:choose", async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("dirs:sync-category-folders", async (_event, payload) => {
+  const libraryDir = payload?.libraryDir || "";
+  const categories = Array.isArray(payload?.categories) ? payload.categories : [];
+  createCategoryFolders(libraryDir, categories);
+  return { ok: true };
+});
+
 ipcMain.handle("files:import-to-library", async (_event, payload) => {
   const files = Array.isArray(payload?.files) ? payload.files : [];
   const mode = payload?.mode || "index";
   const libraryDir = payload?.libraryDir || "";
+  const categories = Array.isArray(payload?.categories) ? payload.categories : [];
 
   if (!["index", "copy", "move"].includes(mode)) {
     throw new Error("未知导入方式。");
@@ -130,13 +163,17 @@ ipcMain.handle("files:import-to-library", async (_event, payload) => {
   }
 
   fs.mkdirSync(libraryDir, { recursive: true });
+  createCategoryFolders(libraryDir, categories);
 
   return files.map((file) => {
     if (!fs.existsSync(file.path)) {
       throw new Error(`文件不存在：${file.path}`);
     }
 
-    const destination = uniqueDestinationPath(libraryDir, path.basename(file.path));
+    const targetDirParts = Array.isArray(file.targetDirParts) ? file.targetDirParts.map(sanitizePathPart) : [];
+    const targetDir = path.join(libraryDir, ...targetDirParts);
+    fs.mkdirSync(targetDir, { recursive: true });
+    const destination = uniqueDestinationPath(targetDir, path.basename(file.path));
     fs.copyFileSync(file.path, destination);
 
     if (mode === "move" && path.resolve(file.path) !== path.resolve(destination)) {
