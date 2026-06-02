@@ -74,10 +74,17 @@ type ShellResult = {
   message: string;
 };
 
+type StorageStats = {
+  dataPath: string;
+  dataSize: number;
+  librarySize: number;
+};
+
 interface Window {
   fileKb: {
     load: () => Promise<FileKbStoreData>;
     save: (data: FileKbStoreData) => Promise<FileKbStoreData>;
+    stats: (payload: { libraryDir: string }) => Promise<StorageStats>;
     backup: (data: FileKbStoreData) => Promise<{ ok: boolean; path: string }>;
     restore: () => Promise<FileKbStoreData | null>;
     chooseFiles: () => Promise<ChosenFile[]>;

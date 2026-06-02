@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("fileKb", {
   load: () => ipcRenderer.invoke("store:load"),
   save: (data) => ipcRenderer.invoke("store:save", data),
+  stats: (payload) => ipcRenderer.invoke("store:stats", payload),
   backup: (data) => ipcRenderer.invoke("store:backup", data),
   restore: () => ipcRenderer.invoke("store:restore"),
   chooseFiles: () => ipcRenderer.invoke("files:choose"),

@@ -187,6 +187,25 @@ function fileMetaFromPath(filePath, extra = {}) {
   };
 }
 
+function directorySize(directoryPath) {
+  if (!directoryPath || !fs.existsSync(directoryPath)) return 0;
+  let total = 0;
+  const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
+
+  entries.forEach((entry) => {
+    const entryPath = path.join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      total += directorySize(entryPath);
+      return;
+    }
+    if (entry.isFile()) {
+      total += fs.statSync(entryPath).size;
+    }
+  });
+
+  return total;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
@@ -241,6 +260,16 @@ app.on("will-quit", () => {
 ipcMain.handle("store:load", () => store.load());
 
 ipcMain.handle("store:save", (_event, data) => store.save(data));
+
+ipcMain.handle("store:stats", async (_event, payload) => {
+  const libraryDir = payload?.libraryDir || "";
+  const dataSize = fs.existsSync(store.dataPath) ? fs.statSync(store.dataPath).size : 0;
+  return {
+    dataPath: store.dataPath,
+    dataSize,
+    librarySize: directorySize(libraryDir)
+  };
+});
 
 ipcMain.handle("store:backup", async (_event, data) => {
   const result = await dialog.showSaveDialog(mainWindow, {

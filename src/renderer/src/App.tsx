@@ -152,6 +152,7 @@ export default function App() {
   const [moveIndexedModalOpen, setMoveIndexedModalOpen] = useState(false);
   const [batchEditModalOpen, setBatchEditModalOpen] = useState(false);
   const [batchEditDraft, setBatchEditDraft] = useState<BatchEditDraft>({ categoryId: "", tags: [] });
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
@@ -282,9 +283,19 @@ export default function App() {
       const libraryDir = await window.fileKb.chooseDirectory();
       if (!libraryDir) return;
       await persist({ ...data, settings: { ...data.settings, libraryDir } });
+      await refreshStorageStats(libraryDir);
       notifications.show({ title: "知识库目录已保存", message: libraryDir, color: "teal" });
     } catch (error) {
       notifyError("选择知识库目录失败", error);
+    }
+  }
+
+  async function refreshStorageStats(libraryDir = data.settings.libraryDir) {
+    try {
+      const stats = await window.fileKb.stats({ libraryDir });
+      setStorageStats(stats);
+    } catch (error) {
+      notifyError("读取空间占用失败", error);
     }
   }
 
@@ -1018,7 +1029,16 @@ export default function App() {
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
         <Group gap="sm" wrap="nowrap">
-          <Button variant="light" leftSection={<HardDrive size={16} />} onClick={() => setSettingsModalOpen(true)}>知识库目录</Button>
+          <Button
+            variant="light"
+            leftSection={<HardDrive size={16} />}
+            onClick={() => {
+              setSettingsModalOpen(true);
+              refreshStorageStats();
+            }}
+          >
+            知识库目录
+          </Button>
           <Button leftSection={<FilePlus size={16} />} onClick={importFiles}>导入文件</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
@@ -1199,6 +1219,19 @@ export default function App() {
             value={data.settings.libraryDir || "未设置"}
             readOnly
           />
+          <Paper p="sm" withBorder>
+            <Stack gap={6}>
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">索引数据占用</Text>
+                <Text size="sm" fw={800}>{formatSize(storageStats?.dataSize || 0)}</Text>
+              </Group>
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">知识库文件占用</Text>
+                <Text size="sm" fw={800}>{formatSize(storageStats?.librarySize || 0)}</Text>
+              </Group>
+              <Text size="xs" c="dimmed" className="pathText">{storageStats?.dataPath || "索引数据路径读取中"}</Text>
+            </Stack>
+          </Paper>
           <Divider />
           <Text size="sm" c="dimmed">备份只导出分类、标签、规则、备注和文件索引，不会复制真实文件。</Text>
           <Group justify="flex-end">
