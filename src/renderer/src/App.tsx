@@ -56,6 +56,7 @@ type CategoryDraft = {
   id: string;
   name: string;
   parentId: string;
+  note: string;
 };
 
 type ImportItem = {
@@ -137,7 +138,7 @@ export default function App() {
   const [detailNote, setDetailNote] = useState("");
   const [isDirty, setIsDirty] = useState(false);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
-  const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>({ id: "", name: "", parentId: "" });
+  const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>({ id: "", name: "", parentId: "", note: "" });
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const [tagDrafts, setTagDrafts] = useState<{ oldName: string; name: string }[]>([]);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
@@ -675,7 +676,8 @@ export default function App() {
             id: makeId("cat"),
             name: folder.parts[folder.parts.length - 1],
             parentId,
-            sortOrder: Date.now() + nextCategories.length
+            sortOrder: Date.now() + nextCategories.length,
+            note: "从知识库目录扫描创建"
           };
           nextCategories.push(category);
           pathToCategoryId.set(key, category.id);
@@ -850,7 +852,8 @@ export default function App() {
     setCategoryDraft({
       id: category?.id || "",
       name: category?.name || "",
-      parentId: category?.parentId || parentId
+      parentId: category?.parentId || parentId,
+      note: category?.note || ""
     });
     setCategoryModalOpen(true);
   }
@@ -861,11 +864,13 @@ export default function App() {
 
     const nextCategories = categoryDraft.id
       ? data.categories.map((category) =>
-          category.id === categoryDraft.id ? { ...category, name, parentId: categoryDraft.parentId || null } : category
+          category.id === categoryDraft.id
+            ? { ...category, name, parentId: categoryDraft.parentId || null, note: categoryDraft.note.trim() }
+            : category
         )
       : [
           ...data.categories,
-          { id: makeId("cat"), name, parentId: categoryDraft.parentId || null, sortOrder: Date.now() }
+          { id: makeId("cat"), name, parentId: categoryDraft.parentId || null, sortOrder: Date.now(), note: categoryDraft.note.trim() }
         ];
 
     await persist({ ...data, categories: nextCategories });
@@ -923,9 +928,16 @@ export default function App() {
 
   function renderCategoryNode(category: CategoryRecord, level = 0) {
     const active = selectedCategoryId === category.id;
+    const children = childCategories(category.id);
     return (
       <Stack gap={4} key={category.id}>
-        <Group className={`categoryItem ${active ? "active" : ""}`} gap={6} wrap="nowrap" style={{ paddingLeft: 8 + level * 14 }}>
+        <Group
+          className={`categoryItem ${active ? "active" : ""}`}
+          data-level={level}
+          gap={6}
+          wrap="nowrap"
+          style={{ paddingLeft: 8 + level * 20 }}
+        >
           <Button
             variant="subtle"
             color={active ? "teal" : "gray"}
@@ -955,7 +967,7 @@ export default function App() {
             </Tooltip>
           </Group>
         </Group>
-        {childCategories(category.id).map((child) => renderCategoryNode(child, level + 1))}
+        {children.length > 0 && <Stack gap={4} className="categoryBranch">{children.map((child) => renderCategoryNode(child, level + 1))}</Stack>}
       </Stack>
     );
   }
@@ -1164,6 +1176,13 @@ export default function App() {
             data={categoryOptions.filter((item) => item.value !== categoryDraft.id)}
             value={categoryDraft.parentId}
             onChange={(value) => setCategoryDraft({ ...categoryDraft, parentId: value || "" })}
+          />
+          <Textarea
+            label="文件夹备注"
+            minRows={4}
+            value={categoryDraft.note}
+            onChange={(event) => setCategoryDraft({ ...categoryDraft, note: event.currentTarget.value })}
+            placeholder="记录这个分类/文件夹的用途、收纳范围、常见关键词"
           />
           <Group justify="flex-end">
             <Button variant="light" onClick={() => setCategoryModalOpen(false)}>取消</Button>

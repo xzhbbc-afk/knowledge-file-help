@@ -18,6 +18,7 @@ type CategoryRecord = {
   name: string;
   parentId: string | null;
   sortOrder: number;
+  note?: string;
 };
 
 type FileRecord = {

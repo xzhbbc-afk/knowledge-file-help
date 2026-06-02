@@ -126,6 +126,9 @@ function createObsidianIndexes(libraryDir, categories, files) {
       indexDir,
       category.name,
       [
+        "## 目录备注",
+        markdownEscape(category.note) || "暂无备注。",
+        "",
         `## 分类路径`,
         markdownEscape(parts.join(" / ")),
         "",

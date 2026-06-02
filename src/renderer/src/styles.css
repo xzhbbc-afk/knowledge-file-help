@@ -39,12 +39,37 @@ body {
 .categoryItem {
   min-height: 36px;
   border-radius: 6px;
+  border-left: 3px solid transparent;
   transition: background-color 0.15s ease;
 }
 
 .categoryItem:hover,
 .categoryItem.active {
   background: #edf7f5;
+}
+
+.categoryItem.active {
+  border-left-color: #0f766e;
+}
+
+.categoryItem[data-level="1"] {
+  background-image: linear-gradient(90deg, #d9e2ea 0, #d9e2ea 1px, transparent 1px);
+  background-position: 15px 0;
+  background-repeat: repeat-y;
+}
+
+.categoryItem[data-level="2"],
+.categoryItem[data-level="3"],
+.categoryItem[data-level="4"] {
+  background-image: linear-gradient(90deg, #d9e2ea 0, #d9e2ea 1px, transparent 1px);
+  background-position: 28px 0;
+  background-repeat: repeat-y;
+}
+
+.categoryBranch {
+  margin-left: 10px;
+  padding-left: 2px;
+  border-left: 1px solid #e5eaf0;
 }
 
 .categoryButton {
