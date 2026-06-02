@@ -234,6 +234,30 @@ ipcMain.handle("store:load", () => store.load());
 
 ipcMain.handle("store:save", (_event, data) => store.save(data));
 
+ipcMain.handle("store:backup", async (_event, data) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: "备份知识库索引",
+    defaultPath: `knowledge-file-backup-${new Date().toISOString().slice(0, 10)}.json`,
+    filters: [{ name: "JSON", extensions: ["json"] }]
+  });
+
+  if (result.canceled || !result.filePath) return { ok: false, path: "" };
+  fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), "utf8");
+  return { ok: true, path: result.filePath };
+});
+
+ipcMain.handle("store:restore", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "恢复知识库索引",
+    properties: ["openFile"],
+    filters: [{ name: "JSON", extensions: ["json"] }]
+  });
+
+  if (result.canceled || !result.filePaths[0]) return null;
+  const raw = fs.readFileSync(result.filePaths[0], "utf8");
+  return JSON.parse(raw);
+});
+
 ipcMain.handle("files:choose", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "导入文件",

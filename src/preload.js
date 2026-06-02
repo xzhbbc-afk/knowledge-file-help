@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("fileKb", {
   load: () => ipcRenderer.invoke("store:load"),
   save: (data) => ipcRenderer.invoke("store:save", data),
+  backup: (data) => ipcRenderer.invoke("store:backup", data),
+  restore: () => ipcRenderer.invoke("store:restore"),
   chooseFiles: () => ipcRenderer.invoke("files:choose"),
   chooseDirectory: () => ipcRenderer.invoke("dirs:choose"),
   syncCategoryFolders: (payload) => ipcRenderer.invoke("dirs:sync-category-folders", payload),

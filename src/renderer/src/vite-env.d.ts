@@ -77,6 +77,8 @@ interface Window {
   fileKb: {
     load: () => Promise<FileKbStoreData>;
     save: (data: FileKbStoreData) => Promise<FileKbStoreData>;
+    backup: (data: FileKbStoreData) => Promise<{ ok: boolean; path: string }>;
+    restore: () => Promise<FileKbStoreData | null>;
     chooseFiles: () => Promise<ChosenFile[]>;
     chooseDirectory: () => Promise<string>;
     syncCategoryFolders: (payload: {

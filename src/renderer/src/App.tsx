@@ -268,6 +268,32 @@ export default function App() {
     }
   }
 
+  async function backupData() {
+    try {
+      const result = await window.fileKb.backup(data);
+      if (!result.ok) return;
+      notifications.show({ title: "备份完成", message: result.path, color: "teal" });
+    } catch (error) {
+      notifyError("备份失败", error);
+    }
+  }
+
+  async function restoreData() {
+    try {
+      if (!window.confirm("恢复备份会覆盖当前分类、标签、规则和文件索引。真实文件不会被删除。确定继续？")) return;
+      const restored = await window.fileKb.restore();
+      if (!restored) return;
+      const saved = await persist(restored);
+      setSelectedCategoryId("");
+      setSelectedFileId("");
+      setSelectedFileIds([]);
+      notifications.show({ title: "恢复完成", message: `已恢复 ${saved.files.length} 个文件索引`, color: "teal" });
+    } catch (error) {
+      notifyError("恢复失败", error);
+    }
+  }
+
+
   useEffect(() => {
     async function load() {
       try {
@@ -1109,8 +1135,12 @@ export default function App() {
             value={data.settings.libraryDir || "未设置"}
             readOnly
           />
+          <Divider />
+          <Text size="sm" c="dimmed">备份只导出分类、标签、规则、备注和文件索引，不会复制真实文件。</Text>
           <Group justify="flex-end">
             <Button variant="light" onClick={() => setSettingsModalOpen(false)}>关闭</Button>
+            <Button variant="light" onClick={backupData}>备份数据</Button>
+            <Button variant="light" color="orange" onClick={restoreData}>恢复数据</Button>
             <Button leftSection={<FolderOpen size={16} />} onClick={chooseLibraryDir}>选择目录</Button>
           </Group>
         </Stack>
