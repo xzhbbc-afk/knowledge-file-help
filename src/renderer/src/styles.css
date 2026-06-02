@@ -187,6 +187,11 @@ body {
   overflow-wrap: anywhere;
 }
 
+.importFileName {
+  min-width: 0;
+  flex: 1;
+}
+
 @media (max-width: 1180px) {
   .contentGrid {
     grid-template-columns: minmax(360px, 1fr) 360px;

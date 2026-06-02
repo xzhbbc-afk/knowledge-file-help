@@ -54,6 +54,13 @@ type CategoryDraft = {
   parentId: string;
 };
 
+type ImportItem = {
+  file: ChosenFile;
+  categoryId: string;
+  tags: string[];
+  note: string;
+};
+
 const emptyStore: FileKbStoreData = {
   categories: [],
   files: [],
@@ -126,7 +133,7 @@ export default function App() {
   const [ruleDrafts, setRuleDrafts] = useState<RuleRecord[]>([]);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [pendingImportFiles, setPendingImportFiles] = useState<ChosenFile[]>([]);
+  const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
   const [importMode, setImportMode] = useState<ImportMode>("index");
   const [moveIndexedModalOpen, setMoveIndexedModalOpen] = useState(false);
 
@@ -291,7 +298,17 @@ export default function App() {
     try {
       const chosen = await window.fileKb.chooseFiles();
       if (!chosen.length) return;
-      setPendingImportFiles(chosen);
+      setPendingImportItems(
+        chosen.map((file) => {
+          const suggestion = applyRules(file);
+          return {
+            file,
+            categoryId: suggestion.categoryId,
+            tags: uniqueTags(suggestion.tags),
+            note: suggestion.categoryId ? `按规则推荐归入：${categoryPath(suggestion.categoryId)}` : ""
+          };
+        })
+      );
       setImportMode(data.settings.libraryDir ? "copy" : "index");
       setImportModalOpen(true);
     } catch (error) {
@@ -307,17 +324,20 @@ export default function App() {
         return;
       }
 
-      const plannedFiles = pendingImportFiles.map((file) => {
-        const suggestion = applyRules(file);
+      const plannedFiles = pendingImportItems.map((item) => {
         return {
           file: {
-            ...file,
-            targetDirParts: categoryDirParts(suggestion.categoryId)
+            ...item.file,
+            targetDirParts: categoryDirParts(item.categoryId)
           },
-          suggestion
+          confirmed: {
+            categoryId: item.categoryId,
+            tags: uniqueTags(item.tags),
+            note: item.note.trim()
+          }
         };
       });
-      const suggestionsByOriginalPath = new Map(plannedFiles.map((item) => [item.file.path, item.suggestion]));
+      const confirmedByOriginalPath = new Map(plannedFiles.map((item) => [item.file.path, item.confirmed]));
 
       const imported = await window.fileKb.importToLibrary({
         files: plannedFiles.map((item) => item.file),
@@ -330,7 +350,11 @@ export default function App() {
       const newFiles = imported
         .filter((file) => !existingPaths.has(file.path))
         .map((file) => {
-          const suggestion = suggestionsByOriginalPath.get(file.originalPath || file.path) || applyRules(file);
+          const confirmed = confirmedByOriginalPath.get(file.originalPath || file.path) || {
+            categoryId: "",
+            tags: [],
+            note: ""
+          };
           return {
             id: makeId("file"),
             name: file.name,
@@ -339,9 +363,9 @@ export default function App() {
             size: file.size,
             modifiedAt: file.modifiedAt,
             importedAt: new Date().toISOString(),
-            categoryId: suggestion.categoryId,
-            tags: suggestion.tags,
-            note: suggestion.categoryId ? `按规则推荐归入：${categoryPath(suggestion.categoryId)}` : "",
+            categoryId: confirmed.categoryId,
+            tags: confirmed.tags,
+            note: confirmed.note,
             originalPath: file.originalPath,
             storedPath: file.storedPath,
             importMode: file.importMode
@@ -351,7 +375,7 @@ export default function App() {
       const saved = await persist({ ...data, files: [...newFiles, ...data.files] });
       if (newFiles[0]) setSelectedFileId(newFiles[0].id);
       setImportModalOpen(false);
-      setPendingImportFiles([]);
+      setPendingImportItems([]);
       notifications.show({ title: "导入完成", message: `新增 ${newFiles.length} 个文件索引`, color: "teal" });
       setData(saved);
     } catch (error) {
@@ -775,7 +799,7 @@ export default function App() {
 
       <Modal opened={importModalOpen} onClose={() => setImportModalOpen(false)} title="确认导入方式" size="lg">
         <Stack>
-          <Text size="sm">已选择 {pendingImportFiles.length} 个文件。</Text>
+          <Text size="sm">已选择 {pendingImportItems.length} 个文件。可以先确认每个文件的分类、标签和备注。</Text>
           <TextInput label="知识库目录" value={data.settings.libraryDir || "未设置"} readOnly />
           <Radio.Group
             label="导入方式"
@@ -798,6 +822,61 @@ export default function App() {
               复制或移动文件前，请先选择知识库目录。
             </Alert>
           )}
+          <ScrollArea h={Math.min(360, Math.max(180, pendingImportItems.length * 138))}>
+            <Stack gap="sm" pr="sm">
+              {pendingImportItems.map((item, index) => (
+                <Paper key={`${item.file.path}_${index}`} p="sm" withBorder>
+                  <Stack gap="xs">
+                    <Group justify="space-between" gap="sm" wrap="nowrap">
+                      <div className="importFileName">
+                        <Text fw={800} truncate>{item.file.name}</Text>
+                        <Text size="xs" c="dimmed">{formatSize(item.file.size)} · {item.file.path}</Text>
+                      </div>
+                      <Badge color={item.categoryId ? "teal" : "gray"}>{item.categoryId ? "已推荐" : "未分类"}</Badge>
+                    </Group>
+                    <Select
+                      label="分类"
+                      data={categoryOptions}
+                      value={item.categoryId}
+                      onChange={(value) =>
+                        setPendingImportItems(
+                          pendingImportItems.map((draft, draftIndex) =>
+                            draftIndex === index ? { ...draft, categoryId: value || "" } : draft
+                          )
+                        )
+                      }
+                    />
+                    <TagsInput
+                      label="标签"
+                      data={data.tags}
+                      value={item.tags}
+                      onChange={(value) =>
+                        setPendingImportItems(
+                          pendingImportItems.map((draft, draftIndex) =>
+                            draftIndex === index ? { ...draft, tags: uniqueTags(value) } : draft
+                          )
+                        )
+                      }
+                      splitChars={[",", "，"]}
+                      placeholder="选择已有标签，或直接输入新标签"
+                    />
+                    <Textarea
+                      label="备注"
+                      minRows={2}
+                      value={item.note}
+                      onChange={(event) =>
+                        setPendingImportItems(
+                          pendingImportItems.map((draft, draftIndex) =>
+                            draftIndex === index ? { ...draft, note: event.currentTarget.value } : draft
+                          )
+                        )
+                      }
+                    />
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          </ScrollArea>
           <Group justify="space-between">
             <Button variant="light" leftSection={<FolderOpen size={16} />} onClick={chooseLibraryDir}>选择知识库目录</Button>
             <Group>
