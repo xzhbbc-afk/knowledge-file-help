@@ -387,14 +387,46 @@ export default function App() {
     if (!selectedFile) return;
 
     try {
+      const categoryChanged = selectedFile.categoryId !== detailCategoryId;
+      const isLibraryManagedFile = selectedFile.importMode === "copy" || selectedFile.importMode === "move";
+      let relocatedFile: (ChosenFile & { storedPath: string }) | null = null;
+
+      if (categoryChanged && isLibraryManagedFile && data.settings.libraryDir) {
+        relocatedFile = await window.fileKb.relocateLibraryFile({
+          filePath: selectedFile.path,
+          libraryDir: data.settings.libraryDir,
+          categories: data.categories,
+          categoryId: detailCategoryId
+        });
+      }
+
       const nextFiles = data.files.map((file) =>
         file.id === selectedFile.id
-          ? { ...file, categoryId: detailCategoryId, tags: uniqueTags(detailTags), note: detailNote.trim() }
+          ? {
+              ...file,
+              categoryId: detailCategoryId,
+              tags: uniqueTags(detailTags),
+              note: detailNote.trim(),
+              ...(relocatedFile
+                ? {
+                    path: relocatedFile.path,
+                    name: relocatedFile.name,
+                    ext: relocatedFile.ext,
+                    size: relocatedFile.size,
+                    modifiedAt: relocatedFile.modifiedAt,
+                    storedPath: relocatedFile.storedPath
+                  }
+                : {})
+            }
           : file
       );
       await persist({ ...data, files: nextFiles });
       setIsDirty(false);
-      notifications.show({ title: "已保存", message: "分类、标签和备注已写入本地索引", color: "teal" });
+      notifications.show({
+        title: "已保存",
+        message: relocatedFile ? "文件已移动到新分类目录，索引已更新" : "分类、标签和备注已写入本地索引",
+        color: "teal"
+      });
     } catch (error) {
       notifyError("保存文件详情失败", error);
     }

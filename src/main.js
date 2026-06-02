@@ -188,6 +188,40 @@ ipcMain.handle("files:import-to-library", async (_event, payload) => {
   });
 });
 
+ipcMain.handle("files:relocate-library-file", async (_event, payload) => {
+  const filePath = payload?.filePath || "";
+  const libraryDir = payload?.libraryDir || "";
+  const categories = Array.isArray(payload?.categories) ? payload.categories : [];
+  const categoryId = payload?.categoryId || "";
+
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error("文件不存在，无法移动到分类目录。");
+  }
+
+  if (!libraryDir) {
+    throw new Error("请先选择知识库目录。");
+  }
+
+  createCategoryFolders(libraryDir, categories);
+  const targetDir = path.join(libraryDir, ...categoryDirParts(categories, categoryId));
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  if (path.resolve(path.dirname(filePath)) === path.resolve(targetDir)) {
+    return fileMetaFromPath(filePath, { storedPath: filePath });
+  }
+
+  const destination = uniqueDestinationPath(targetDir, path.basename(filePath));
+
+  try {
+    fs.renameSync(filePath, destination);
+  } catch (_error) {
+    fs.copyFileSync(filePath, destination);
+    fs.unlinkSync(filePath);
+  }
+
+  return fileMetaFromPath(destination, { storedPath: destination });
+});
+
 ipcMain.handle("files:open", async (_event, filePath) => {
   if (!fs.existsSync(filePath)) {
     return { ok: false, message: "文件不存在，可能已被移动或删除。" };

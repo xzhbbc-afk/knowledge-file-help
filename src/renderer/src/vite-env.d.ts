@@ -85,6 +85,12 @@ interface Window {
       mode: ImportMode;
       categories: CategoryRecord[];
     }) => Promise<ImportedFile[]>;
+    relocateLibraryFile: (payload: {
+      filePath: string;
+      libraryDir: string;
+      categories: CategoryRecord[];
+      categoryId: string;
+    }) => Promise<ChosenFile & { storedPath: string }>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
   };

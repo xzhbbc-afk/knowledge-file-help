@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("fileKb", {
   chooseDirectory: () => ipcRenderer.invoke("dirs:choose"),
   syncCategoryFolders: (payload) => ipcRenderer.invoke("dirs:sync-category-folders", payload),
   importToLibrary: (payload) => ipcRenderer.invoke("files:import-to-library", payload),
+  relocateLibraryFile: (payload) => ipcRenderer.invoke("files:relocate-library-file", payload),
   openFile: (filePath) => ipcRenderer.invoke("files:open", filePath),
   showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath)
 });
