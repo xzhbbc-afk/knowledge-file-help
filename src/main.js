@@ -6,6 +6,31 @@ const { createStore } = require("./store");
 let mainWindow;
 let store;
 
+function uniqueDestinationPath(directoryPath, fileName) {
+  const parsed = path.parse(fileName);
+  let candidate = path.join(directoryPath, fileName);
+  let index = 1;
+
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(directoryPath, `${parsed.name} (${index})${parsed.ext}`);
+    index += 1;
+  }
+
+  return candidate;
+}
+
+function fileMetaFromPath(filePath, extra = {}) {
+  const stats = fs.statSync(filePath);
+  return {
+    path: filePath,
+    name: path.basename(filePath),
+    ext: path.extname(filePath).replace(".", "").toLowerCase(),
+    size: stats.size,
+    modifiedAt: stats.mtime.toISOString(),
+    ...extra
+  };
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
@@ -69,14 +94,60 @@ ipcMain.handle("files:choose", async () => {
 
   if (result.canceled) return [];
   return result.filePaths.map((filePath) => {
-    const stats = require("fs").statSync(filePath);
-    return {
-      path: filePath,
-      name: path.basename(filePath),
-      ext: path.extname(filePath).replace(".", "").toLowerCase(),
-      size: stats.size,
-      modifiedAt: stats.mtime.toISOString()
-    };
+    return fileMetaFromPath(filePath, { originalPath: filePath, storedPath: filePath, importMode: "index" });
+  });
+});
+
+ipcMain.handle("dirs:choose", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "选择知识库目录",
+    properties: ["openDirectory", "createDirectory"]
+  });
+
+  if (result.canceled || !result.filePaths[0]) return "";
+  return result.filePaths[0];
+});
+
+ipcMain.handle("files:import-to-library", async (_event, payload) => {
+  const files = Array.isArray(payload?.files) ? payload.files : [];
+  const mode = payload?.mode || "index";
+  const libraryDir = payload?.libraryDir || "";
+
+  if (!["index", "copy", "move"].includes(mode)) {
+    throw new Error("未知导入方式。");
+  }
+
+  if (mode === "index") {
+    return files.map((file) => fileMetaFromPath(file.path, {
+      originalPath: file.originalPath || file.path,
+      storedPath: file.path,
+      importMode: "index"
+    }));
+  }
+
+  if (!libraryDir) {
+    throw new Error("请先选择知识库目录。");
+  }
+
+  fs.mkdirSync(libraryDir, { recursive: true });
+
+  return files.map((file) => {
+    if (!fs.existsSync(file.path)) {
+      throw new Error(`文件不存在：${file.path}`);
+    }
+
+    const destination = uniqueDestinationPath(libraryDir, path.basename(file.path));
+    fs.copyFileSync(file.path, destination);
+
+    if (mode === "move" && path.resolve(file.path) !== path.resolve(destination)) {
+      fs.unlinkSync(file.path);
+    }
+
+    return fileMetaFromPath(destination, {
+      originalPath: file.originalPath || file.path,
+      storedPath: destination,
+      importMode: mode
+    });
   });
 });
 

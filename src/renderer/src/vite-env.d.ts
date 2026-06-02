@@ -5,6 +5,11 @@ type FileKbStoreData = {
   files: FileRecord[];
   tags: string[];
   rules: RuleRecord[];
+  settings: AppSettings;
+};
+
+type AppSettings = {
+  libraryDir: string;
 };
 
 type CategoryRecord = {
@@ -25,6 +30,9 @@ type FileRecord = {
   categoryId: string;
   tags: string[];
   note: string;
+  originalPath?: string;
+  storedPath?: string;
+  importMode?: ImportMode;
 };
 
 type RuleRecord = {
@@ -42,7 +50,18 @@ type ChosenFile = {
   ext: string;
   size: number;
   modifiedAt: string;
+  originalPath?: string;
+  storedPath?: string;
+  importMode?: ImportMode;
 };
+
+type ImportedFile = ChosenFile & {
+  originalPath: string;
+  storedPath: string;
+  importMode: ImportMode;
+};
+
+type ImportMode = "index" | "copy" | "move";
 
 type ShellResult = {
   ok: boolean;
@@ -54,6 +73,12 @@ interface Window {
     load: () => Promise<FileKbStoreData>;
     save: (data: FileKbStoreData) => Promise<FileKbStoreData>;
     chooseFiles: () => Promise<ChosenFile[]>;
+    chooseDirectory: () => Promise<string>;
+    importToLibrary: (payload: {
+      files: ChosenFile[];
+      libraryDir: string;
+      mode: ImportMode;
+    }) => Promise<ImportedFile[]>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
   };

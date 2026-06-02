@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Alert,
   AppShell,
   Badge,
   Button,
@@ -7,6 +8,7 @@ import {
   Group,
   Modal,
   Paper,
+  Radio,
   ScrollArea,
   Select,
   Stack,
@@ -22,6 +24,7 @@ import {
   ExternalLink,
   FilePlus,
   FolderOpen,
+  HardDrive,
   Pencil,
   Plus,
   Save,
@@ -55,7 +58,10 @@ const emptyStore: FileKbStoreData = {
   categories: [],
   files: [],
   tags: [],
-  rules: []
+  rules: [],
+  settings: {
+    libraryDir: ""
+  }
 };
 
 function makeId(prefix: string) {
@@ -103,6 +109,10 @@ export default function App() {
   const [tagDrafts, setTagDrafts] = useState<{ oldName: string; name: string }[]>([]);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [ruleDrafts, setRuleDrafts] = useState<RuleRecord[]>([]);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [pendingImportFiles, setPendingImportFiles] = useState<ChosenFile[]>([]);
+  const [importMode, setImportMode] = useState<ImportMode>("index");
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
@@ -193,6 +203,17 @@ export default function App() {
     return synced;
   }
 
+  async function chooseLibraryDir() {
+    try {
+      const libraryDir = await window.fileKb.chooseDirectory();
+      if (!libraryDir) return;
+      await persist({ ...data, settings: { ...data.settings, libraryDir } });
+      notifications.show({ title: "知识库目录已保存", message: libraryDir, color: "teal" });
+    } catch (error) {
+      notifyError("选择知识库目录失败", error);
+    }
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -244,9 +265,30 @@ export default function App() {
     try {
       const chosen = await window.fileKb.chooseFiles();
       if (!chosen.length) return;
+      setPendingImportFiles(chosen);
+      setImportMode(data.settings.libraryDir ? "copy" : "index");
+      setImportModalOpen(true);
+    } catch (error) {
+      notifyError("选择文件失败", error);
+    }
+  }
+
+  async function confirmImportFiles() {
+    try {
+      if ((importMode === "copy" || importMode === "move") && !data.settings.libraryDir) {
+        notifications.show({ title: "请先选择知识库目录", message: "复制或移动文件前，需要先设置知识库目录。", color: "orange" });
+        setSettingsModalOpen(true);
+        return;
+      }
+
+      const imported = await window.fileKb.importToLibrary({
+        files: pendingImportFiles,
+        libraryDir: data.settings.libraryDir,
+        mode: importMode
+      });
 
       const existingPaths = new Set(data.files.map((file) => file.path));
-      const newFiles = chosen
+      const newFiles = imported
         .filter((file) => !existingPaths.has(file.path))
         .map((file) => {
           const suggestion = applyRules(file);
@@ -260,12 +302,17 @@ export default function App() {
             importedAt: new Date().toISOString(),
             categoryId: suggestion.categoryId,
             tags: suggestion.tags,
-            note: suggestion.categoryId ? `按规则推荐归入：${categoryPath(suggestion.categoryId)}` : ""
+            note: suggestion.categoryId ? `按规则推荐归入：${categoryPath(suggestion.categoryId)}` : "",
+            originalPath: file.originalPath,
+            storedPath: file.storedPath,
+            importMode: file.importMode
           };
         });
 
       const saved = await persist({ ...data, files: [...newFiles, ...data.files] });
       if (newFiles[0]) setSelectedFileId(newFiles[0].id);
+      setImportModalOpen(false);
+      setPendingImportFiles([]);
       notifications.show({ title: "导入完成", message: `新增 ${newFiles.length} 个文件索引`, color: "teal" });
       setData(saved);
     } catch (error) {
@@ -473,6 +520,7 @@ export default function App() {
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
         <Group gap="sm" wrap="nowrap">
+          <Button variant="light" leftSection={<HardDrive size={16} />} onClick={() => setSettingsModalOpen(true)}>知识库目录</Button>
           <Button leftSection={<FilePlus size={16} />} onClick={importFiles}>导入文件</Button>
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
@@ -576,6 +624,9 @@ export default function App() {
                   <Group justify="space-between"><Text c="dimmed">大小</Text><Text fw={700}>{formatSize(selectedFile.size)}</Text></Group>
                   <Group justify="space-between"><Text c="dimmed">修改时间</Text><Text fw={700}>{new Date(selectedFile.modifiedAt).toLocaleString()}</Text></Group>
                   <Stack gap={2}><Text c="dimmed">路径</Text><Text fw={700} className="pathText">{selectedFile.path}</Text></Stack>
+                  {selectedFile.originalPath && selectedFile.originalPath !== selectedFile.path && (
+                    <Stack gap={2}><Text c="dimmed">原始路径</Text><Text fw={700} className="pathText">{selectedFile.originalPath}</Text></Stack>
+                  )}
                 </Stack>
                 <Group gap="sm">
                   <Button leftSection={<Save size={16} />} onClick={saveDetail}>保存修改</Button>
@@ -601,6 +652,58 @@ export default function App() {
           <Group justify="flex-end">
             <Button variant="light" onClick={() => setCategoryModalOpen(false)}>取消</Button>
             <Button onClick={saveCategory}>保存</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} title="知识库目录" size="lg">
+        <Stack>
+          <Text size="sm" c="dimmed">知识库目录用于保存复制或移动进来的文件。仅索引模式不会移动文件。</Text>
+          <TextInput
+            label="当前目录"
+            value={data.settings.libraryDir || "未设置"}
+            readOnly
+          />
+          <Group justify="flex-end">
+            <Button variant="light" onClick={() => setSettingsModalOpen(false)}>关闭</Button>
+            <Button leftSection={<FolderOpen size={16} />} onClick={chooseLibraryDir}>选择目录</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={importModalOpen} onClose={() => setImportModalOpen(false)} title="确认导入方式" size="lg">
+        <Stack>
+          <Text size="sm">已选择 {pendingImportFiles.length} 个文件。</Text>
+          <TextInput label="知识库目录" value={data.settings.libraryDir || "未设置"} readOnly />
+          <Radio.Group
+            label="导入方式"
+            value={importMode}
+            onChange={(value) => setImportMode(value as ImportMode)}
+          >
+            <Stack mt="xs">
+              <Radio value="index" label="仅建立索引：文件保留在原位置" />
+              <Radio value="copy" label="复制进知识库：原文件保留，知识库中保存一份副本" />
+              <Radio value="move" label="移动进知识库：原位置文件会被移走" />
+            </Stack>
+          </Radio.Group>
+          {importMode === "move" && (
+            <Alert color="red" title="移动文件警告">
+              移动后，文件会从原位置移到知识库目录。依赖原路径的快捷方式、脚本或其他软件可能会找不到这些文件。
+            </Alert>
+          )}
+          {(importMode === "copy" || importMode === "move") && !data.settings.libraryDir && (
+            <Alert color="orange" title="需要先设置知识库目录">
+              复制或移动文件前，请先选择知识库目录。
+            </Alert>
+          )}
+          <Group justify="space-between">
+            <Button variant="light" leftSection={<FolderOpen size={16} />} onClick={chooseLibraryDir}>选择知识库目录</Button>
+            <Group>
+              <Button variant="light" onClick={() => setImportModalOpen(false)}>取消</Button>
+              <Button color={importMode === "move" ? "red" : "teal"} onClick={confirmImportFiles}>
+                {importMode === "move" ? "确认移动并导入" : "确认导入"}
+              </Button>
+            </Group>
           </Group>
         </Stack>
       </Modal>

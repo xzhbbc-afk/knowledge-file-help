@@ -5,7 +5,10 @@ const defaultData = {
   categories: [],
   files: [],
   tags: [],
-  rules: []
+  rules: [],
+  settings: {
+    libraryDir: ""
+  }
 };
 
 function createStore(userDataPath) {
@@ -23,7 +26,11 @@ function createStore(userDataPath) {
       categories: Array.isArray(data.categories) ? data.categories : defaultData.categories,
       files: Array.isArray(data.files) ? data.files : [],
       tags: Array.isArray(data.tags) ? data.tags : [],
-      rules: Array.isArray(data.rules) ? data.rules : []
+      rules: Array.isArray(data.rules) ? data.rules : [],
+      settings: {
+        ...defaultData.settings,
+        ...(data.settings && typeof data.settings === "object" ? data.settings : {})
+      }
     };
   }
 
