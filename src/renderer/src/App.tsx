@@ -4,6 +4,7 @@ import {
   AppShell,
   Badge,
   Button,
+  Checkbox,
   Divider,
   Group,
   Modal,
@@ -62,6 +63,11 @@ type ImportItem = {
   categoryId: string;
   tags: string[];
   note: string;
+};
+
+type BatchEditDraft = {
+  categoryId: string;
+  tags: string[];
 };
 
 const emptyStore: FileKbStoreData = {
@@ -123,6 +129,7 @@ export default function App() {
   const [data, setData] = useState<FileKbStoreData>(emptyStore);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedFileId, setSelectedFileId] = useState("");
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [detailCategoryId, setDetailCategoryId] = useState("");
@@ -142,6 +149,8 @@ export default function App() {
   const [importMode, setImportMode] = useState<ImportMode>("index");
   const [importApplyRules, setImportApplyRules] = useState(true);
   const [moveIndexedModalOpen, setMoveIndexedModalOpen] = useState(false);
+  const [batchEditModalOpen, setBatchEditModalOpen] = useState(false);
+  const [batchEditDraft, setBatchEditDraft] = useState<BatchEditDraft>({ categoryId: "", tags: [] });
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
@@ -640,6 +649,69 @@ export default function App() {
     }
   }
 
+  function toggleFileSelection(fileId: string, checked: boolean) {
+    setSelectedFileIds((current) => {
+      if (checked) return current.includes(fileId) ? current : [...current, fileId];
+      return current.filter((id) => id !== fileId);
+    });
+  }
+
+  function openBatchEditModal() {
+    setBatchEditDraft({ categoryId: "", tags: [] });
+    setBatchEditModalOpen(true);
+  }
+
+  async function applyBatchEdit() {
+    try {
+      const selectedIds = new Set(selectedFileIds);
+      const nextFiles: FileRecord[] = [];
+
+      for (const file of data.files) {
+        if (!selectedIds.has(file.id)) {
+          nextFiles.push(file);
+          continue;
+        }
+
+        const nextCategoryId = batchEditDraft.categoryId || file.categoryId;
+        const categoryChanged = file.categoryId !== nextCategoryId;
+        let nextFile = {
+          ...file,
+          categoryId: nextCategoryId,
+          tags: uniqueTags([...file.tags, ...batchEditDraft.tags])
+        };
+
+        if (categoryChanged && (file.importMode === "copy" || file.importMode === "move") && data.settings.libraryDir) {
+          const relocatedFile = await window.fileKb.relocateLibraryFile({
+            filePath: file.path,
+            libraryDir: data.settings.libraryDir,
+            categories: data.categories,
+            categoryId: nextCategoryId
+          });
+          nextFile = {
+            ...nextFile,
+            path: relocatedFile.path,
+            name: relocatedFile.name,
+            ext: relocatedFile.ext,
+            size: relocatedFile.size,
+            modifiedAt: relocatedFile.modifiedAt,
+            storedPath: relocatedFile.storedPath,
+            missing: false,
+            lastCheckedAt: new Date().toISOString()
+          };
+        }
+
+        nextFiles.push(nextFile);
+      }
+
+      await persist({ ...data, files: nextFiles });
+      notifications.show({ title: "批量操作完成", message: `已更新 ${selectedFileIds.length} 个文件`, color: "teal" });
+      setSelectedFileIds([]);
+      setBatchEditModalOpen(false);
+    } catch (error) {
+      notifyError("批量操作失败", error);
+    }
+  }
+
   async function removeSelectedFile() {
     if (!selectedFile || !window.confirm("只移除索引，不会删除本地文件。确定继续？")) return;
     await persist({ ...data, files: data.files.filter((file) => file.id !== selectedFile.id) });
@@ -887,6 +959,17 @@ export default function App() {
                 onChange={(value) => setTagFilter(value || "")}
               />
             </Group>
+            {selectedFileIds.length > 0 && (
+              <Paper p="sm" withBorder>
+                <Group justify="space-between">
+                  <Text size="sm" fw={700}>已选择 {selectedFileIds.length} 个文件</Text>
+                  <Group gap="xs">
+                    <Button size="xs" variant="light" onClick={openBatchEditModal}>批量编辑</Button>
+                    <Button size="xs" variant="subtle" color="gray" onClick={() => setSelectedFileIds([])}>清空选择</Button>
+                  </Group>
+                </Group>
+              </Paper>
+            )}
             <ScrollArea className="fileScroll">
               <Stack gap="sm">
                 {!filteredFiles.length ? (
@@ -901,6 +984,12 @@ export default function App() {
                       className={`fileCard ${selectedFileId === file.id ? "active" : ""}`}
                       onClick={() => setSelectedFileId(file.id)}
                     >
+                      <Checkbox
+                        className="fileCheck"
+                        checked={selectedFileIds.includes(file.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => toggleFileSelection(file.id, event.currentTarget.checked)}
+                      />
                       <div className="fileExt">{(file.ext || "FILE").slice(0, 4).toUpperCase()}</div>
                       <Stack gap={5} className="fileCardBody">
                         <Text fw={800} truncate>{file.name}</Text>
@@ -1145,6 +1234,34 @@ export default function App() {
               <Button variant="light" onClick={() => setMoveIndexedModalOpen(false)}>取消</Button>
               <Button color="red" onClick={moveSelectedFileToLibrary}>确认移动</Button>
             </Group>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={batchEditModalOpen} onClose={() => setBatchEditModalOpen(false)} title="批量编辑文件" size="lg">
+        <Stack>
+          <Alert color="blue" title="批量编辑说明">
+            分类只有选择后才会修改；标签会追加到已有标签，不会覆盖原标签。已在知识库中的文件如果分类发生变化，会同步移动到对应分类文件夹。
+          </Alert>
+          <Select
+            label="批量设置分类"
+            placeholder="不修改分类"
+            data={categoryOptions}
+            value={batchEditDraft.categoryId}
+            onChange={(value) => setBatchEditDraft({ ...batchEditDraft, categoryId: value || "" })}
+            clearable
+          />
+          <TagsInput
+            label="批量追加标签"
+            data={data.tags}
+            value={batchEditDraft.tags}
+            onChange={(value) => setBatchEditDraft({ ...batchEditDraft, tags: uniqueTags(value) })}
+            splitChars={[",", "，"]}
+            placeholder="选择已有标签，或直接输入新标签"
+          />
+          <Group justify="flex-end">
+            <Button variant="light" onClick={() => setBatchEditModalOpen(false)}>取消</Button>
+            <Button onClick={applyBatchEdit}>应用到 {selectedFileIds.length} 个文件</Button>
           </Group>
         </Stack>
       </Modal>
