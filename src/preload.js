@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("fileKb", {
   importToLibrary: (payload) => ipcRenderer.invoke("files:import-to-library", payload),
   relocateLibraryFile: (payload) => ipcRenderer.invoke("files:relocate-library-file", payload),
   checkFiles: (files) => ipcRenderer.invoke("files:check", files),
+  scanLibrary: (payload) => ipcRenderer.invoke("library:scan", payload),
   openFile: (filePath) => ipcRenderer.invoke("files:open", filePath),
   showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath)
 });

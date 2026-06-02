@@ -594,6 +594,52 @@ export default function App() {
     }
   }
 
+  async function scanLibraryFiles() {
+    try {
+      if (!data.settings.libraryDir) {
+        notifications.show({ title: "请先选择知识库目录", message: "扫描前需要先设置知识库目录。", color: "orange" });
+        setSettingsModalOpen(true);
+        return;
+      }
+
+      const scannedFiles = await window.fileKb.scanLibrary({
+        libraryDir: data.settings.libraryDir,
+        categories: data.categories
+      });
+      const existingPaths = new Set(data.files.map((file) => file.path.toLowerCase()));
+      const newFiles = scannedFiles
+        .filter((file) => !existingPaths.has(file.path.toLowerCase()))
+        .map((file) => ({
+          id: makeId("file"),
+          name: file.name,
+          path: file.path,
+          ext: file.ext,
+          size: file.size,
+          modifiedAt: file.modifiedAt,
+          importedAt: new Date().toISOString(),
+          categoryId: file.categoryId,
+          tags: [],
+          note: "从知识库目录扫描入库",
+          originalPath: file.originalPath || file.path,
+          storedPath: file.storedPath || file.path,
+          importMode: file.importMode || "copy",
+          missing: false,
+          lastCheckedAt: new Date().toISOString()
+        }));
+
+      if (!newFiles.length) {
+        notifications.show({ title: "扫描完成", message: "没有发现新的未索引文件。", color: "gray" });
+        return;
+      }
+
+      await persist({ ...data, files: [...newFiles, ...data.files] });
+      if (newFiles[0]) setSelectedFileId(newFiles[0].id);
+      notifications.show({ title: "扫描完成", message: `新增 ${newFiles.length} 个文件索引`, color: "teal" });
+    } catch (error) {
+      notifyError("扫描知识库失败", error);
+    }
+  }
+
   async function removeSelectedFile() {
     if (!selectedFile || !window.confirm("只移除索引，不会删除本地文件。确定继续？")) return;
     await persist({ ...data, files: data.files.filter((file) => file.id !== selectedFile.id) });
@@ -819,6 +865,7 @@ export default function App() {
         <Group gap="sm" wrap="nowrap">
           <Button variant="light" leftSection={<HardDrive size={16} />} onClick={() => setSettingsModalOpen(true)}>知识库目录</Button>
           <Button leftSection={<FilePlus size={16} />} onClick={importFiles}>导入文件</Button>
+          <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>

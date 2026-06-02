@@ -101,6 +101,12 @@ interface Window {
       exists: boolean;
       checkedAt: string;
     }>>;
+    scanLibrary: (payload: {
+      libraryDir: string;
+      categories: CategoryRecord[];
+    }) => Promise<Array<ChosenFile & {
+      categoryId: string;
+    }>>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
   };

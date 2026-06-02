@@ -139,6 +139,34 @@ function createObsidianIndexes(libraryDir, categories, files) {
   });
 }
 
+function scanFilesRecursive(directoryPath, found = []) {
+  if (!fs.existsSync(directoryPath)) return found;
+  const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
+
+  entries.forEach((entry) => {
+    const entryPath = path.join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      scanFilesRecursive(entryPath, found);
+      return;
+    }
+
+    if (!entry.isFile()) return;
+    if (entry.name.toLowerCase() === "_index.md") return;
+    found.push(entryPath);
+  });
+
+  return found;
+}
+
+function categoryIdByRelativeDir(libraryDir, categories) {
+  const result = new Map();
+  categories.forEach((category) => {
+    const relativeDir = categoryDirParts(categories, category.id).join(path.sep);
+    result.set(relativeDir.toLowerCase(), category.id);
+  });
+  return result;
+}
+
 function fileMetaFromPath(filePath, extra = {}) {
   const stats = fs.statSync(filePath);
   return {
@@ -326,6 +354,27 @@ ipcMain.handle("files:check", async (_event, files) => {
     exists: Boolean(file.path && fs.existsSync(file.path)),
     checkedAt: new Date().toISOString()
   }));
+});
+
+ipcMain.handle("library:scan", async (_event, payload) => {
+  const libraryDir = payload?.libraryDir || "";
+  const categories = Array.isArray(payload?.categories) ? payload.categories : [];
+
+  if (!libraryDir || !fs.existsSync(libraryDir)) {
+    throw new Error("知识库目录不存在，请先选择有效目录。");
+  }
+
+  const categoryMap = categoryIdByRelativeDir(libraryDir, categories);
+  return scanFilesRecursive(libraryDir).map((filePath) => {
+    const relativeDir = path.dirname(path.relative(libraryDir, filePath));
+    const normalizedRelativeDir = relativeDir === "." ? "" : relativeDir.toLowerCase();
+    return fileMetaFromPath(filePath, {
+      originalPath: filePath,
+      storedPath: filePath,
+      importMode: "copy",
+      categoryId: categoryMap.get(normalizedRelativeDir) || ""
+    });
+  });
 });
 
 ipcMain.handle("files:open", async (_event, filePath) => {
