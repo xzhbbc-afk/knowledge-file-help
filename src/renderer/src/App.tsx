@@ -179,6 +179,25 @@ export default function App() {
     return [...categoryDirParts(category.parentId), category.name];
   }
 
+  function categoryPathKey(parts: string[]) {
+    return parts.join("\u0000").toLowerCase();
+  }
+
+  function categoryPathMap(categories: CategoryRecord[]) {
+    const byId = new Map(categories.map((category) => [category.id, category]));
+    const partsForCategory = (categoryId: string): string[] => {
+      const category = byId.get(categoryId);
+      if (!category) return [];
+      if (!category.parentId) return [category.name];
+      return [...partsForCategory(category.parentId), category.name];
+    };
+    const result = new Map<string, string>();
+    categories.forEach((category) => {
+      result.set(categoryPathKey(partsForCategory(category.id)), category.id);
+    });
+    return result;
+  }
+
   const categoryOptions = useMemo(
     () => [
       { value: "", label: "未分类" },
@@ -637,12 +656,33 @@ export default function App() {
         return;
       }
 
-      const scannedFiles = await window.fileKb.scanLibrary({
+      const scanResult = await window.fileKb.scanLibrary({
         libraryDir: data.settings.libraryDir,
         categories: data.categories
       });
+      const nextCategories = [...data.categories];
+      const pathToCategoryId = categoryPathMap(nextCategories);
+
+      scanResult.folders
+        .sort((a, b) => a.parts.length - b.parts.length)
+        .forEach((folder) => {
+          const key = categoryPathKey(folder.parts);
+          if (pathToCategoryId.has(key)) return;
+
+          const parentParts = folder.parts.slice(0, -1);
+          const parentId = parentParts.length ? pathToCategoryId.get(categoryPathKey(parentParts)) || null : null;
+          const category = {
+            id: makeId("cat"),
+            name: folder.parts[folder.parts.length - 1],
+            parentId,
+            sortOrder: Date.now() + nextCategories.length
+          };
+          nextCategories.push(category);
+          pathToCategoryId.set(key, category.id);
+        });
+
       const existingPaths = new Set(data.files.map((file) => file.path.toLowerCase()));
-      const newFiles = scannedFiles
+      const newFiles = scanResult.files
         .filter((file) => !existingPaths.has(file.path.toLowerCase()))
         .map((file) => ({
           id: makeId("file"),
@@ -652,7 +692,7 @@ export default function App() {
           size: file.size,
           modifiedAt: file.modifiedAt,
           importedAt: new Date().toISOString(),
-          categoryId: file.categoryId,
+          categoryId: file.categoryId || pathToCategoryId.get(categoryPathKey(file.categoryParts)) || "",
           tags: [],
           note: "从知识库目录扫描入库",
           originalPath: file.originalPath || file.path,
@@ -662,14 +702,19 @@ export default function App() {
           lastCheckedAt: new Date().toISOString()
         }));
 
-      if (!newFiles.length) {
-        notifications.show({ title: "扫描完成", message: "没有发现新的未索引文件。", color: "gray" });
+      const newCategoryCount = nextCategories.length - data.categories.length;
+      if (!newFiles.length && !newCategoryCount) {
+        notifications.show({ title: "扫描完成", message: "没有发现新的未索引文件或文件夹。", color: "gray" });
         return;
       }
 
-      await persist({ ...data, files: [...newFiles, ...data.files] });
+      await persist({ ...data, categories: nextCategories, files: [...newFiles, ...data.files] });
       if (newFiles[0]) setSelectedFileId(newFiles[0].id);
-      notifications.show({ title: "扫描完成", message: `新增 ${newFiles.length} 个文件索引`, color: "teal" });
+      notifications.show({
+        title: "扫描完成",
+        message: `新增 ${newCategoryCount} 个分类，${newFiles.length} 个文件索引`,
+        color: "teal"
+      });
     } catch (error) {
       notifyError("扫描知识库失败", error);
     }

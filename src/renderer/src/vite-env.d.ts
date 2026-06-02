@@ -106,9 +106,17 @@ interface Window {
     scanLibrary: (payload: {
       libraryDir: string;
       categories: CategoryRecord[];
-    }) => Promise<Array<ChosenFile & {
-      categoryId: string;
-    }>>;
+    }) => Promise<{
+      folders: Array<{
+        path: string;
+        parts: string[];
+        categoryId: string;
+      }>;
+      files: Array<ChosenFile & {
+        categoryId: string;
+        categoryParts: string[];
+      }>;
+    }>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
   };

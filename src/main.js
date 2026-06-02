@@ -139,23 +139,28 @@ function createObsidianIndexes(libraryDir, categories, files) {
   });
 }
 
-function scanFilesRecursive(directoryPath, found = []) {
-  if (!fs.existsSync(directoryPath)) return found;
+function scanLibraryTree(libraryDir, directoryPath = libraryDir, result = { folders: [], files: [] }) {
+  if (!fs.existsSync(directoryPath)) return result;
   const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
 
   entries.forEach((entry) => {
     const entryPath = path.join(directoryPath, entry.name);
     if (entry.isDirectory()) {
-      scanFilesRecursive(entryPath, found);
+      const relativePath = path.relative(libraryDir, entryPath);
+      result.folders.push({
+        path: entryPath,
+        parts: relativePath.split(path.sep).filter(Boolean)
+      });
+      scanLibraryTree(libraryDir, entryPath, result);
       return;
     }
 
     if (!entry.isFile()) return;
     if (entry.name.toLowerCase() === "_index.md") return;
-    found.push(entryPath);
+    result.files.push(entryPath);
   });
 
-  return found;
+  return result;
 }
 
 function categoryIdByRelativeDir(libraryDir, categories) {
@@ -389,16 +394,28 @@ ipcMain.handle("library:scan", async (_event, payload) => {
   }
 
   const categoryMap = categoryIdByRelativeDir(libraryDir, categories);
-  return scanFilesRecursive(libraryDir).map((filePath) => {
+  const tree = scanLibraryTree(libraryDir);
+  return {
+    folders: tree.folders.map((folder) => {
+      const relativeDir = folder.parts.join(path.sep).toLowerCase();
+      return {
+        path: folder.path,
+        parts: folder.parts,
+        categoryId: categoryMap.get(relativeDir) || ""
+      };
+    }),
+    files: tree.files.map((filePath) => {
     const relativeDir = path.dirname(path.relative(libraryDir, filePath));
     const normalizedRelativeDir = relativeDir === "." ? "" : relativeDir.toLowerCase();
     return fileMetaFromPath(filePath, {
       originalPath: filePath,
       storedPath: filePath,
       importMode: "copy",
-      categoryId: categoryMap.get(normalizedRelativeDir) || ""
+      categoryId: categoryMap.get(normalizedRelativeDir) || "",
+      categoryParts: normalizedRelativeDir ? relativeDir.split(path.sep).filter(Boolean) : []
     });
-  });
+  })
+  };
 });
 
 ipcMain.handle("files:open", async (_event, filePath) => {
