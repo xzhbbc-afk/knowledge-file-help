@@ -294,6 +294,80 @@ export default function App() {
     };
   }
 
+  function matchingRuleForFile(file: FileRecord, rules: RuleRecord[]) {
+    const text = `${file.name} ${file.ext} ${file.path} ${file.note}`.toLowerCase();
+    return rules.find((rule) => {
+      if (!rule.enabled) return false;
+      return rule.keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+    });
+  }
+
+  function normalizedRules(rules: RuleRecord[]) {
+    return rules.map((rule) => ({
+      ...rule,
+      name: normalizeText(rule.name) || "未命名规则",
+      keywords: uniqueTags(rule.keywords),
+      tags: uniqueTags(rule.tags)
+    }));
+  }
+
+  async function applyRulesToExistingFiles(rulesToApply = data.rules) {
+    try {
+      const rules = normalizedRules(rulesToApply);
+      let changedCount = 0;
+      const nextFiles: FileRecord[] = [];
+
+      for (const file of data.files) {
+        const rule = matchingRuleForFile(file, rules);
+        if (!rule) {
+          nextFiles.push(file);
+          continue;
+        }
+
+        const nextCategoryId = rule.categoryId || file.categoryId;
+        const nextTags = uniqueTags([...file.tags, ...rule.tags]);
+        const categoryChanged = file.categoryId !== nextCategoryId;
+        const tagsChanged = nextTags.join("\u0000") !== file.tags.join("\u0000");
+        let nextFile = {
+          ...file,
+          categoryId: nextCategoryId,
+          tags: nextTags
+        };
+
+        if (categoryChanged && (file.importMode === "copy" || file.importMode === "move") && data.settings.libraryDir) {
+          const relocatedFile = await window.fileKb.relocateLibraryFile({
+            filePath: file.path,
+            libraryDir: data.settings.libraryDir,
+            categories: data.categories,
+            categoryId: nextCategoryId
+          });
+          nextFile = {
+            ...nextFile,
+            path: relocatedFile.path,
+            name: relocatedFile.name,
+            ext: relocatedFile.ext,
+            size: relocatedFile.size,
+            modifiedAt: relocatedFile.modifiedAt,
+            storedPath: relocatedFile.storedPath
+          };
+        }
+
+        if (categoryChanged || tagsChanged) changedCount += 1;
+        nextFiles.push(nextFile);
+      }
+
+      if (!changedCount) {
+        notifications.show({ title: "没有命中文件", message: "当前启用规则没有改变任何现有文件。", color: "gray" });
+        return;
+      }
+
+      await persist({ ...data, rules, files: nextFiles });
+      notifications.show({ title: "规则已应用", message: `更新了 ${changedCount} 个文件`, color: "teal" });
+    } catch (error) {
+      notifyError("应用归档规则失败", error);
+    }
+  }
+
   async function importFiles() {
     try {
       const chosen = await window.fileKb.chooseFiles();
@@ -578,12 +652,7 @@ export default function App() {
   async function saveRules() {
     await persist({
       ...data,
-      rules: ruleDrafts.map((rule) => ({
-        ...rule,
-        name: normalizeText(rule.name) || "未命名规则",
-        keywords: uniqueTags(rule.keywords),
-        tags: uniqueTags(rule.tags)
-      }))
+      rules: normalizedRules(ruleDrafts)
     });
     setRuleModalOpen(false);
   }
@@ -982,7 +1051,13 @@ export default function App() {
 
       <Modal opened={ruleModalOpen} onClose={() => setRuleModalOpen(false)} title="归档规则" size="xl">
         <Stack>
-          <Group justify="flex-end">
+          <Alert color="blue" title="规则的作用">
+            规则会在导入文件时自动预填分类和标签；也可以手动应用到现有文件。应用到现有文件时，已在知识库中的文件如果分类发生变化，会同步移动到对应分类文件夹。
+          </Alert>
+          <Group justify="space-between">
+            <Button variant="light" leftSection={<Settings2 size={16} />} onClick={() => applyRulesToExistingFiles(ruleDrafts)}>
+              应用到现有文件
+            </Button>
             <Button
               variant="light"
               leftSection={<Plus size={16} />}
