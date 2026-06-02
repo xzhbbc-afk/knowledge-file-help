@@ -128,6 +128,7 @@ export default function App() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportFiles, setPendingImportFiles] = useState<ChosenFile[]>([]);
   const [importMode, setImportMode] = useState<ImportMode>("index");
+  const [moveIndexedModalOpen, setMoveIndexedModalOpen] = useState(false);
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
@@ -393,6 +394,61 @@ export default function App() {
     if (!selectedFile || !window.confirm("只移除索引，不会删除本地文件。确定继续？")) return;
     await persist({ ...data, files: data.files.filter((file) => file.id !== selectedFile.id) });
     setSelectedFileId("");
+  }
+
+  async function moveSelectedFileToLibrary() {
+    if (!selectedFile) return;
+
+    try {
+      if (!data.settings.libraryDir) {
+        notifications.show({ title: "请先选择知识库目录", message: "移动文件前，需要先设置知识库目录。", color: "orange" });
+        setMoveIndexedModalOpen(false);
+        setSettingsModalOpen(true);
+        return;
+      }
+
+      const [movedFile] = await window.fileKb.importToLibrary({
+        files: [
+          {
+            path: selectedFile.path,
+            name: selectedFile.name,
+            ext: selectedFile.ext,
+            size: selectedFile.size,
+            modifiedAt: selectedFile.modifiedAt,
+            originalPath: selectedFile.originalPath || selectedFile.path,
+            storedPath: selectedFile.path,
+            importMode: "index",
+            targetDirParts: categoryDirParts(selectedFile.categoryId)
+          }
+        ],
+        libraryDir: data.settings.libraryDir,
+        mode: "move",
+        categories: data.categories
+      });
+
+      await persist({
+        ...data,
+        files: data.files.map((file) =>
+          file.id === selectedFile.id
+            ? {
+                ...file,
+                path: movedFile.path,
+                name: movedFile.name,
+                ext: movedFile.ext,
+                size: movedFile.size,
+                modifiedAt: movedFile.modifiedAt,
+                originalPath: movedFile.originalPath,
+                storedPath: movedFile.storedPath,
+                importMode: "move"
+              }
+            : file
+        )
+      });
+      setMoveIndexedModalOpen(false);
+      notifications.show({ title: "已移动到知识库", message: movedFile.path, color: "teal" });
+    } catch (error) {
+      notifyError("移动到知识库失败", error);
+    }
   }
 
   function openCategoryModal(category?: CategoryRecord, parentId = "") {
@@ -671,6 +727,11 @@ export default function App() {
                 </Stack>
                 <Group gap="sm">
                   <Button leftSection={<Save size={16} />} onClick={saveDetail}>保存修改</Button>
+                  {(!selectedFile.importMode || selectedFile.importMode === "index") && (
+                    <Button variant="light" color="orange" leftSection={<FolderOpen size={16} />} onClick={() => setMoveIndexedModalOpen(true)}>
+                      移动到知识库
+                    </Button>
+                  )}
                   <Button variant="light" leftSection={<ExternalLink size={16} />} onClick={openSelectedFile}>打开</Button>
                   <Button variant="light" leftSection={<FolderOpen size={16} />} onClick={showSelectedFile}>所在文件夹</Button>
                   <Button variant="light" color="red" leftSection={<X size={16} />} onClick={removeSelectedFile}>移除索引</Button>
@@ -744,6 +805,28 @@ export default function App() {
               <Button color={importMode === "move" ? "red" : "teal"} onClick={confirmImportFiles}>
                 {importMode === "move" ? "确认移动并导入" : "确认导入"}
               </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={moveIndexedModalOpen} onClose={() => setMoveIndexedModalOpen(false)} title="移动到知识库" size="lg">
+        <Stack>
+          <Alert color="red" title="移动文件警告">
+            这个操作会把当前文件从原位置移动到知识库目录。移动后，原路径会失效，依赖原路径的快捷方式、脚本或其他软件可能会找不到这个文件。
+          </Alert>
+          <TextInput label="知识库目录" value={data.settings.libraryDir || "未设置"} readOnly />
+          <TextInput label="目标分类目录" value={selectedFile ? categoryPath(selectedFile.categoryId) : "未分类"} readOnly />
+          {!data.settings.libraryDir && (
+            <Alert color="orange" title="需要先设置知识库目录">
+              移动文件前，请先选择知识库目录。
+            </Alert>
+          )}
+          <Group justify="space-between">
+            <Button variant="light" leftSection={<FolderOpen size={16} />} onClick={chooseLibraryDir}>选择知识库目录</Button>
+            <Group>
+              <Button variant="light" onClick={() => setMoveIndexedModalOpen(false)}>取消</Button>
+              <Button color="red" onClick={moveSelectedFileToLibrary}>确认移动</Button>
             </Group>
           </Group>
         </Stack>
