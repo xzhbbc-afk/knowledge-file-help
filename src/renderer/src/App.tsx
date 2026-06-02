@@ -236,6 +236,13 @@ export default function App() {
   async function persist(nextData: FileKbStoreData) {
     const synced = withSyncedTags(nextData);
     await window.fileKb.save(synced);
+    if (synced.settings.libraryDir) {
+      await window.fileKb.syncCategoryFolders({
+        libraryDir: synced.settings.libraryDir,
+        categories: synced.categories,
+        files: synced.files
+      });
+    }
     setData(synced);
     return synced;
   }
@@ -244,8 +251,7 @@ export default function App() {
     try {
       const libraryDir = await window.fileKb.chooseDirectory();
       if (!libraryDir) return;
-      const saved = await persist({ ...data, settings: { ...data.settings, libraryDir } });
-      await window.fileKb.syncCategoryFolders({ libraryDir, categories: saved.categories });
+      await persist({ ...data, settings: { ...data.settings, libraryDir } });
       notifications.show({ title: "知识库目录已保存", message: libraryDir, color: "teal" });
     } catch (error) {
       notifyError("选择知识库目录失败", error);
@@ -636,10 +642,7 @@ export default function App() {
           { id: makeId("cat"), name, parentId: categoryDraft.parentId || null, sortOrder: Date.now() }
         ];
 
-    const saved = await persist({ ...data, categories: nextCategories });
-    if (saved.settings.libraryDir) {
-      await window.fileKb.syncCategoryFolders({ libraryDir: saved.settings.libraryDir, categories: saved.categories });
-    }
+    await persist({ ...data, categories: nextCategories });
     setCategoryModalOpen(false);
   }
 

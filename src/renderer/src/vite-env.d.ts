@@ -80,6 +80,7 @@ interface Window {
     syncCategoryFolders: (payload: {
       libraryDir: string;
       categories: CategoryRecord[];
+      files: FileRecord[];
     }) => Promise<{ ok: boolean }>;
     importToLibrary: (payload: {
       files: ChosenFile[];

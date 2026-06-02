@@ -44,6 +44,101 @@ function createCategoryFolders(libraryDir, categories) {
   });
 }
 
+function markdownEscape(value) {
+  return String(value || "")
+    .replace(/\r?\n/g, " ")
+    .replace(/\|/g, "\\|")
+    .trim();
+}
+
+function markdownLinkForFile(indexDir, file) {
+  if (!file.path) return markdownEscape(file.name);
+  const relative = path.relative(indexDir, file.path).replace(/\\/g, "/");
+  return `[${markdownEscape(file.name)}](<${relative}>)`;
+}
+
+function replaceManagedBlock(existingContent, title, blockContent) {
+  const start = "<!-- knowledge-file-help:auto:start -->";
+  const end = "<!-- knowledge-file-help:auto:end -->";
+  const block = `${start}\n${blockContent}\n${end}`;
+
+  if (!existingContent) return `# ${title}\n\n${block}\n`;
+
+  const pattern = new RegExp(`${start}[\\s\\S]*?${end}`);
+  if (pattern.test(existingContent)) return existingContent.replace(pattern, block);
+  return `${existingContent.trim()}\n\n${block}\n`;
+}
+
+function writeIndexFile(indexDir, title, blockContent) {
+  fs.mkdirSync(indexDir, { recursive: true });
+  const indexPath = path.join(indexDir, "_index.md");
+  const existingContent = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, "utf8") : "";
+  fs.writeFileSync(indexPath, replaceManagedBlock(existingContent, title, blockContent), "utf8");
+}
+
+function createObsidianIndexes(libraryDir, categories, files) {
+  const filesByCategory = new Map();
+  files.forEach((file) => {
+    const key = file.categoryId || "";
+    filesByCategory.set(key, [...(filesByCategory.get(key) || []), file]);
+  });
+
+  function fileTable(indexDir, categoryId) {
+    const categoryFiles = filesByCategory.get(categoryId) || [];
+    if (!categoryFiles.length) return "暂无文件。";
+
+    const rows = categoryFiles
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+      .map((file) => {
+        const tags = Array.isArray(file.tags) ? file.tags.join(", ") : "";
+        return `| ${markdownLinkForFile(indexDir, file)} | ${markdownEscape(tags)} | ${markdownEscape(file.note)} |`;
+      });
+
+    return ["| 文件 | 标签 | 备注 |", "| --- | --- | --- |", ...rows].join("\n");
+  }
+
+  const rootChildren = categories
+    .filter((category) => !category.parentId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "zh-CN"))
+    .map((category) => `- [[${sanitizePathPart(category.name)}/_index|${markdownEscape(category.name)}]]`);
+
+  writeIndexFile(
+    libraryDir,
+    "知识库索引",
+    [
+      "## 分类",
+      rootChildren.length ? rootChildren.join("\n") : "暂无分类。",
+      "",
+      "## 根目录文件",
+      fileTable(libraryDir, "")
+    ].join("\n")
+  );
+
+  categories.forEach((category) => {
+    const parts = categoryDirParts(categories, category.id);
+    const indexDir = path.join(libraryDir, ...parts);
+    const children = categories
+      .filter((item) => item.parentId === category.id)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "zh-CN"))
+      .map((child) => `- [[${sanitizePathPart(child.name)}/_index|${markdownEscape(child.name)}]]`);
+
+    writeIndexFile(
+      indexDir,
+      category.name,
+      [
+        `## 分类路径`,
+        markdownEscape(parts.join(" / ")),
+        "",
+        "## 子分类",
+        children.length ? children.join("\n") : "暂无子分类。",
+        "",
+        "## 文件索引",
+        fileTable(indexDir, category.id)
+      ].join("\n")
+    );
+  });
+}
+
 function fileMetaFromPath(filePath, extra = {}) {
   const stats = fs.statSync(filePath);
   return {
@@ -136,7 +231,9 @@ ipcMain.handle("dirs:choose", async () => {
 ipcMain.handle("dirs:sync-category-folders", async (_event, payload) => {
   const libraryDir = payload?.libraryDir || "";
   const categories = Array.isArray(payload?.categories) ? payload.categories : [];
+  const files = Array.isArray(payload?.files) ? payload.files : [];
   createCategoryFolders(libraryDir, categories);
+  createObsidianIndexes(libraryDir, categories, files);
   return { ok: true };
 });
 
