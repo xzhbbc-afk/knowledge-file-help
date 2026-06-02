@@ -319,6 +319,15 @@ ipcMain.handle("files:relocate-library-file", async (_event, payload) => {
   return fileMetaFromPath(destination, { storedPath: destination });
 });
 
+ipcMain.handle("files:check", async (_event, files) => {
+  const items = Array.isArray(files) ? files : [];
+  return items.map((file) => ({
+    id: file.id,
+    exists: Boolean(file.path && fs.existsSync(file.path)),
+    checkedAt: new Date().toISOString()
+  }));
+});
+
 ipcMain.handle("files:open", async (_event, filePath) => {
   if (!fs.existsSync(filePath)) {
     return { ok: false, message: "文件不存在，可能已被移动或删除。" };

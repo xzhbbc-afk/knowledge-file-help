@@ -35,6 +35,8 @@ type FileRecord = {
   storedPath?: string;
   importMode?: ImportMode;
   targetDirParts?: string[];
+  missing?: boolean;
+  lastCheckedAt?: string;
 };
 
 type RuleRecord = {
@@ -94,6 +96,11 @@ interface Window {
       categories: CategoryRecord[];
       categoryId: string;
     }) => Promise<ChosenFile & { storedPath: string }>;
+    checkFiles: (files: FileRecord[]) => Promise<Array<{
+      id: string;
+      exists: boolean;
+      checkedAt: string;
+    }>>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
   };

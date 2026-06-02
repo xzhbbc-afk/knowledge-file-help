@@ -29,6 +29,7 @@ import {
   HardDrive,
   Pencil,
   Plus,
+  RefreshCw,
   Save,
   Search,
   Settings2,
@@ -481,7 +482,9 @@ export default function App() {
             note: confirmed.note,
             originalPath: file.originalPath,
             storedPath: file.storedPath,
-            importMode: file.importMode
+            importMode: file.importMode,
+            missing: false,
+            lastCheckedAt: new Date().toISOString()
           };
         });
 
@@ -527,7 +530,9 @@ export default function App() {
                     ext: relocatedFile.ext,
                     size: relocatedFile.size,
                     modifiedAt: relocatedFile.modifiedAt,
-                    storedPath: relocatedFile.storedPath
+                    storedPath: relocatedFile.storedPath,
+                    missing: false,
+                    lastCheckedAt: new Date().toISOString()
                   }
                 : {})
             }
@@ -557,6 +562,36 @@ export default function App() {
     const result = await window.fileKb.showInFolder(selectedFile.path);
     if (result.ok) return;
     notifications.show({ title: "打开所在文件夹失败", message: result.message, color: "red" });
+  }
+
+  async function checkIndexedFiles() {
+    try {
+      if (!data.files.length) {
+        notifications.show({ title: "没有文件", message: "当前没有可检查的文件索引。", color: "gray" });
+        return;
+      }
+
+      const results = await window.fileKb.checkFiles(data.files);
+      const resultById = new Map(results.map((result) => [result.id, result]));
+      const nextFiles = data.files.map((file) => {
+        const result = resultById.get(file.id);
+        if (!result) return file;
+        return {
+          ...file,
+          missing: !result.exists,
+          lastCheckedAt: result.checkedAt
+        };
+      });
+      const missingCount = nextFiles.filter((file) => file.missing).length;
+      await persist({ ...data, files: nextFiles });
+      notifications.show({
+        title: "检查完成",
+        message: missingCount ? `发现 ${missingCount} 个文件路径失效` : "所有文件路径都有效",
+        color: missingCount ? "orange" : "teal"
+      });
+    } catch (error) {
+      notifyError("检查文件失败", error);
+    }
   }
 
   async function removeSelectedFile() {
@@ -608,7 +643,9 @@ export default function App() {
                 modifiedAt: movedFile.modifiedAt,
                 originalPath: movedFile.originalPath,
                 storedPath: movedFile.storedPath,
-                importMode: "move"
+                importMode: "move",
+                missing: false,
+                lastCheckedAt: new Date().toISOString()
               }
             : file
         )
@@ -782,6 +819,7 @@ export default function App() {
         <Group gap="sm" wrap="nowrap">
           <Button variant="light" leftSection={<HardDrive size={16} />} onClick={() => setSettingsModalOpen(true)}>知识库目录</Button>
           <Button leftSection={<FilePlus size={16} />} onClick={importFiles}>导入文件</Button>
+          <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
         </Group>
@@ -821,6 +859,7 @@ export default function App() {
                         <Text fw={800} truncate>{file.name}</Text>
                         <Text size="sm" c="dimmed">{categoryPath(file.categoryId)} · {formatSize(file.size)}</Text>
                         <Group gap={6}>
+                          {file.missing && <Badge variant="light" color="red">文件丢失</Badge>}
                           {file.tags.map((tag) => <Badge key={tag} variant="light" color="orange">{tag}</Badge>)}
                         </Group>
                       </Stack>
@@ -846,6 +885,11 @@ export default function App() {
                   </div>
                   <Badge color="orange">{selectedFile.ext || "FILE"}</Badge>
                 </Group>
+                {selectedFile.missing && (
+                  <Alert color="red" title="文件路径失效">
+                    当前索引记录的文件路径不存在。你可以检查原文件是否被删除、移动，或从索引中移除该记录。
+                  </Alert>
+                )}
                 <Select
                   label="分类"
                   data={categoryOptions}
