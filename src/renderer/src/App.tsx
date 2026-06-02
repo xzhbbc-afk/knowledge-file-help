@@ -76,6 +76,21 @@ function uniqueTags(tags: string[]) {
   return tags.map(normalizeText).filter(Boolean).filter((tag, index, list) => list.indexOf(tag) === index);
 }
 
+function normalizeStoreData(nextData: FileKbStoreData): FileKbStoreData {
+  return {
+    ...emptyStore,
+    ...nextData,
+    categories: Array.isArray(nextData.categories) ? nextData.categories : [],
+    files: Array.isArray(nextData.files) ? nextData.files : [],
+    tags: Array.isArray(nextData.tags) ? nextData.tags : [],
+    rules: Array.isArray(nextData.rules) ? nextData.rules : [],
+    settings: {
+      ...emptyStore.settings,
+      ...(nextData.settings || {})
+    }
+  };
+}
+
 function formatSize(bytes: number) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -160,25 +175,27 @@ export default function App() {
   }, [data.files, selectedCategoryId, search, tagFilter, data.categories]);
 
   function withSyncedTags(nextData: FileKbStoreData) {
-    const tags = new Set(nextData.tags);
-    nextData.files.forEach((file) => file.tags.forEach((tag) => tags.add(tag)));
-    nextData.rules.forEach((rule) => rule.tags.forEach((tag) => tags.add(tag)));
+    const normalized = normalizeStoreData(nextData);
+    const tags = new Set(normalized.tags);
+    normalized.files.forEach((file) => file.tags.forEach((tag) => tags.add(tag)));
+    normalized.rules.forEach((rule) => rule.tags.forEach((tag) => tags.add(tag)));
     return {
-      ...nextData,
+      ...normalized,
       tags: [...tags].filter(Boolean).sort((a, b) => a.localeCompare(b, "zh-CN"))
     };
   }
 
   function removeSeededDataIfUnused(nextData: FileKbStoreData) {
+    const normalized = normalizeStoreData(nextData);
     const tagsUsedByFiles = new Set<string>();
-    nextData.files.forEach((file) => file.tags.forEach((tag) => tagsUsedByFiles.add(tag)));
+    normalized.files.forEach((file) => file.tags.forEach((tag) => tagsUsedByFiles.add(tag)));
 
-    const categoriesUsedByFiles = new Set(nextData.files.map((file) => file.categoryId).filter(Boolean));
+    const categoriesUsedByFiles = new Set(normalized.files.map((file) => file.categoryId).filter(Boolean));
     const seededCategoriesInUse = new Set(categoriesUsedByFiles);
     let changed = true;
     while (changed) {
       changed = false;
-      nextData.categories.forEach((category) => {
+      normalized.categories.forEach((category) => {
         if (seededCategoriesInUse.has(category.id) && category.parentId && !seededCategoriesInUse.has(category.parentId)) {
           seededCategoriesInUse.add(category.parentId);
           changed = true;
@@ -187,12 +204,12 @@ export default function App() {
     }
 
     return {
-      categories: nextData.categories.filter(
+      ...normalized,
+      categories: normalized.categories.filter(
         (category) => !seededCategoryIds.has(category.id) || seededCategoriesInUse.has(category.id)
       ),
-      files: nextData.files,
-      tags: nextData.tags.filter((tag) => !seededTags.has(tag) || tagsUsedByFiles.has(tag)),
-      rules: nextData.rules.filter((rule) => !seededRuleIds.has(rule.id))
+      tags: normalized.tags.filter((tag) => !seededTags.has(tag) || tagsUsedByFiles.has(tag)),
+      rules: normalized.rules.filter((rule) => !seededRuleIds.has(rule.id))
     };
   }
 
