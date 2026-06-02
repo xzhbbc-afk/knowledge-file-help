@@ -7,7 +7,8 @@ const defaultData = {
   tags: [],
   rules: [],
   settings: {
-    libraryDir: ""
+    libraryDir: "",
+    archiveRuleScope: "root"
   }
 };
 

@@ -10,6 +10,7 @@ type FileKbStoreData = {
 
 type AppSettings = {
   libraryDir: string;
+  archiveRuleScope: ArchiveRuleScope;
 };
 
 type CategoryRecord = {
@@ -63,6 +64,7 @@ type ImportedFile = ChosenFile & {
 };
 
 type ImportMode = "index" | "copy" | "move";
+type ArchiveRuleScope = "root" | "all";
 
 type ShellResult = {
   ok: boolean;

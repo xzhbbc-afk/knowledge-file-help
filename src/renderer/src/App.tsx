@@ -10,6 +10,7 @@ import {
   Paper,
   Radio,
   ScrollArea,
+  SegmentedControl,
   Select,
   Stack,
   Switch,
@@ -68,7 +69,8 @@ const emptyStore: FileKbStoreData = {
   tags: [],
   rules: [],
   settings: {
-    libraryDir: ""
+    libraryDir: "",
+    archiveRuleScope: "root"
   }
 };
 
@@ -132,6 +134,7 @@ export default function App() {
   const [tagDrafts, setTagDrafts] = useState<{ oldName: string; name: string }[]>([]);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [ruleDrafts, setRuleDrafts] = useState<RuleRecord[]>([]);
+  const [ruleScopeDraft, setRuleScopeDraft] = useState<ArchiveRuleScope>("root");
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -313,6 +316,16 @@ export default function App() {
     }));
   }
 
+  function isRootScopeFile(file: FileRecord) {
+    if (!data.settings.libraryDir) return !file.categoryId;
+    const normalizedLibraryDir = data.settings.libraryDir.toLowerCase();
+    const normalizedPath = file.path.toLowerCase();
+    if (!normalizedPath.startsWith(normalizedLibraryDir)) return !file.categoryId;
+
+    const relativePath = file.path.slice(data.settings.libraryDir.length).replace(/^[/\\]/, "");
+    return !relativePath.includes("\\") && !relativePath.includes("/");
+  }
+
   async function applyRulesToExistingFiles(rulesToApply = data.rules) {
     try {
       const rules = normalizedRules(rulesToApply);
@@ -320,6 +333,11 @@ export default function App() {
       const nextFiles: FileRecord[] = [];
 
       for (const file of data.files) {
+        if (ruleScopeDraft === "root" && !isRootScopeFile(file)) {
+          nextFiles.push(file);
+          continue;
+        }
+
         const rule = matchingRuleForFile(file, rules);
         if (!rule) {
           nextFiles.push(file);
@@ -363,7 +381,7 @@ export default function App() {
         return;
       }
 
-      await persist({ ...data, rules, files: nextFiles });
+      await persist({ ...data, rules, files: nextFiles, settings: { ...data.settings, archiveRuleScope: ruleScopeDraft } });
       notifications.show({ title: "规则已应用", message: `更新了 ${changedCount} 个文件`, color: "teal" });
     } catch (error) {
       notifyError("应用归档规则失败", error);
@@ -661,13 +679,15 @@ export default function App() {
 
   function openRulesModal() {
     setRuleDrafts(data.rules.map((rule) => ({ ...rule, keywords: [...rule.keywords], tags: [...rule.tags] })));
+    setRuleScopeDraft(data.settings.archiveRuleScope || "root");
     setRuleModalOpen(true);
   }
 
   async function saveRules() {
     await persist({
       ...data,
-      rules: normalizedRules(ruleDrafts)
+      rules: normalizedRules(ruleDrafts),
+      settings: { ...data.settings, archiveRuleScope: ruleScopeDraft }
     });
     setRuleModalOpen(false);
   }
@@ -1077,6 +1097,17 @@ export default function App() {
           <Alert color="blue" title="规则的作用">
             规则会在导入文件时自动预填分类和标签；也可以手动应用到现有文件。应用到现有文件时，已在知识库中的文件如果分类发生变化，会同步移动到对应分类文件夹。
           </Alert>
+          <SegmentedControl
+            value={ruleScopeDraft}
+            onChange={(value) => setRuleScopeDraft(value as ArchiveRuleScope)}
+            data={[
+              { value: "root", label: "仅根目录归档" },
+              { value: "all", label: "所有目录归档" }
+            ]}
+          />
+          <Text size="xs" c="dimmed">
+            仅根目录归档会只处理知识库根目录下的文件；所有目录归档会允许规则重新处理已分类目录里的文件。
+          </Text>
           <Group justify="space-between">
             <Button variant="light" leftSection={<Settings2 size={16} />} onClick={() => applyRulesToExistingFiles(ruleDrafts)}>
               应用到现有文件
