@@ -12,6 +12,7 @@ import {
   ScrollArea,
   Select,
   Stack,
+  Switch,
   TagsInput,
   Text,
   TextInput,
@@ -135,6 +136,7 @@ export default function App() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
   const [importMode, setImportMode] = useState<ImportMode>("index");
+  const [importApplyRules, setImportApplyRules] = useState(true);
   const [moveIndexedModalOpen, setMoveIndexedModalOpen] = useState(false);
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
@@ -383,6 +385,7 @@ export default function App() {
           };
         })
       );
+      setImportApplyRules(true);
       setImportMode(data.settings.libraryDir ? "copy" : "index");
       setImportModalOpen(true);
     } catch (error) {
@@ -398,7 +401,19 @@ export default function App() {
         return;
       }
 
-      const plannedFiles = pendingImportItems.map((item) => {
+      const confirmedItems = pendingImportItems.map((item) => {
+        if (!importApplyRules || item.categoryId) return item;
+        const suggestion = applyRules(item.file);
+        if (!suggestion.categoryId && !suggestion.tags.length) return item;
+        return {
+          ...item,
+          categoryId: suggestion.categoryId || item.categoryId,
+          tags: uniqueTags([...item.tags, ...suggestion.tags]),
+          note: item.note || (suggestion.categoryId ? `按规则推荐归入：${categoryPath(suggestion.categoryId)}` : "")
+        };
+      });
+
+      const plannedFiles = confirmedItems.map((item) => {
         return {
           file: {
             ...item.file,
@@ -900,7 +915,15 @@ export default function App() {
 
       <Modal opened={importModalOpen} onClose={() => setImportModalOpen(false)} title="确认导入方式" size="lg">
         <Stack>
-          <Text size="sm">已选择 {pendingImportItems.length} 个文件。可以先确认每个文件的分类、标签和备注。</Text>
+          <Group justify="space-between" align="flex-start">
+            <Text size="sm">已选择 {pendingImportItems.length} 个文件。可以先确认每个文件的分类、标签和备注。</Text>
+            <Switch
+              label="应用归档规则"
+              checked={importApplyRules}
+              onChange={(event) => setImportApplyRules(event.currentTarget.checked)}
+            />
+          </Group>
+          <Text size="xs" c="dimmed">开关开启时，确认导入会对未选择分类的文件应用规则；已手动选择分类的文件不会被规则覆盖。</Text>
           <TextInput label="知识库目录" value={data.settings.libraryDir || "未设置"} readOnly />
           <Radio.Group
             label="导入方式"
