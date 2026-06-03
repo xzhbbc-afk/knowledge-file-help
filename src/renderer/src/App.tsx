@@ -812,7 +812,7 @@ export default function App() {
 
   async function indexOcrContent(targetFiles?: FileRecord[]) {
     try {
-      const sourceFiles = targetFiles || data.files;
+      const sourceFiles = Array.isArray(targetFiles) ? targetFiles : data.files;
       const candidates = sourceFiles.filter((file) => ocrImageExts.has(String(file.ext || "").toLowerCase()));
       if (!candidates.length) {
         notifications.show({ title: "没有图片", message: "当前没有可进行 OCR 的图片文件。", color: "gray" });
@@ -1155,7 +1155,7 @@ export default function App() {
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
           <Button variant="light" leftSection={<Search size={16} />} onClick={indexTextContent}>建立内容索引</Button>
-          <Button variant="light" leftSection={<ScanText size={16} />} onClick={indexOcrContent}>建立 OCR 索引</Button>
+          <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()}>建立 OCR 索引</Button>
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
         </Group>
