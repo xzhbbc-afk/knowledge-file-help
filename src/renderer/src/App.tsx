@@ -9,6 +9,7 @@ import {
   Group,
   Modal,
   Paper,
+  Progress,
   Radio,
   ScrollArea,
   SegmentedControl,
@@ -71,6 +72,15 @@ type ImportItem = {
 type BatchEditDraft = {
   categoryId: string;
   tags: string[];
+};
+
+type OcrProgressState = {
+  fileId?: string;
+  fileName?: string;
+  current?: number;
+  total?: number;
+  status?: string;
+  progress?: number;
 };
 
 const emptyStore: FileKbStoreData = {
@@ -156,6 +166,8 @@ export default function App() {
   const [batchEditModalOpen, setBatchEditModalOpen] = useState(false);
   const [batchEditDraft, setBatchEditDraft] = useState<BatchEditDraft>({ categoryId: "", tags: [] });
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+  const [ocrRunning, setOcrRunning] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState<OcrProgressState | null>(null);
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
@@ -170,6 +182,15 @@ export default function App() {
     if (file.contentIndexStatus === "indexed") return file.contentIndexSource === "ocr" ? "violet" : "blue";
     if (file.contentIndexStatus === "failed") return "red";
     return "gray";
+  }
+
+  function ocrOverallPercent() {
+    const current = ocrProgress?.current || 0;
+    const total = ocrProgress?.total || 0;
+    const progress = ocrProgress?.progress || 0;
+    if (!total) return 0;
+    const completedBeforeCurrent = Math.max(current - 1, 0);
+    return Math.round(((completedBeforeCurrent + progress) / total) * 100);
   }
 
   function childCategories(parentId: string | null) {
@@ -252,6 +273,12 @@ export default function App() {
       window.clearTimeout(timer);
     };
   }, [search]);
+
+  useEffect(() => {
+    return window.fileKb.onOcrProgress((progress) => {
+      setOcrProgress(progress);
+    });
+  }, []);
 
   const filteredFiles = useMemo(() => {
     const categoryIds = selectedCategoryId ? [selectedCategoryId, ...descendantsOf(selectedCategoryId)] : [];
@@ -811,6 +838,7 @@ export default function App() {
   }
 
   async function indexOcrContent(targetFiles?: FileRecord[]) {
+    if (ocrRunning) return;
     try {
       const sourceFiles = Array.isArray(targetFiles) ? targetFiles : data.files;
       const candidates = sourceFiles.filter((file) => ocrImageExts.has(String(file.ext || "").toLowerCase()));
@@ -819,6 +847,8 @@ export default function App() {
         return;
       }
 
+      setOcrRunning(true);
+      setOcrProgress({ current: 0, total: candidates.length, status: "准备 OCR", progress: 0 });
       const results = await window.fileKb.indexOcrFiles(candidates);
       const resultById = new Map(results.map((result) => [result.id, result]));
       const nextFiles = data.files.map((file) => {
@@ -842,6 +872,8 @@ export default function App() {
       });
     } catch (error) {
       notifyError("建立 OCR 索引失败", error);
+    } finally {
+      setOcrRunning(false);
     }
   }
 
@@ -1155,7 +1187,9 @@ export default function App() {
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
           <Button variant="light" leftSection={<Search size={16} />} onClick={indexTextContent}>建立内容索引</Button>
-          <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()}>建立 OCR 索引</Button>
+          <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()} loading={ocrRunning} disabled={ocrRunning}>
+            {ocrRunning ? "OCR 处理中" : "建立 OCR 索引"}
+          </Button>
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
         </Group>
@@ -1187,6 +1221,22 @@ export default function App() {
                     <Button size="xs" variant="subtle" color="gray" onClick={() => setSelectedFileIds([])}>清空选择</Button>
                   </Group>
                 </Group>
+              </Paper>
+            )}
+            {ocrRunning && (
+              <Paper p="sm" withBorder>
+                <Stack gap={6}>
+                  <Group justify="space-between" gap="sm">
+                    <Text size="sm" fw={700}>OCR 处理中</Text>
+                    <Text size="xs" c="dimmed">
+                      {ocrProgress?.current || 0}/{ocrProgress?.total || 0}
+                    </Text>
+                  </Group>
+                  <Progress value={ocrOverallPercent()} color="violet" />
+                  <Text size="xs" c="dimmed" truncate>
+                    {ocrProgress?.fileName || "准备识别图片"} · {ocrProgress?.status || "准备 OCR"} · {ocrOverallPercent()}%
+                  </Text>
+                </Stack>
               </Paper>
             )}
             <ScrollArea className="fileScroll">
@@ -1304,8 +1354,8 @@ export default function App() {
                 <Group gap="sm">
                   <Button leftSection={<Save size={16} />} onClick={saveDetail}>保存修改</Button>
                   {ocrImageExts.has(String(selectedFile.ext || "").toLowerCase()) && (
-                    <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent([selectedFile])}>
-                      建立 OCR 索引
+                    <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent([selectedFile])} loading={ocrRunning} disabled={ocrRunning}>
+                      {ocrRunning ? "OCR 处理中" : "建立 OCR 索引"}
                     </Button>
                   )}
                   {(!selectedFile.importMode || selectedFile.importMode === "index") && (

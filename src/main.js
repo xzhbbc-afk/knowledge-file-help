@@ -457,7 +457,11 @@ ipcMain.handle("content:index-text-files", async (_event, files) => {
 });
 
 ipcMain.handle("content:index-ocr-files", async (_event, files) => {
-  return await store.indexOcrFiles(Array.isArray(files) ? files : []);
+  return await store.indexOcrFiles(Array.isArray(files) ? files : [], (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("content:ocr-progress", progress);
+    }
+  });
 });
 
 ipcMain.handle("content:search", async (_event, query) => {

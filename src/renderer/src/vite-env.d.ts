@@ -87,6 +87,15 @@ type StorageStats = {
   contentIndexSize: number;
 };
 
+type OcrProgressPayload = {
+  fileId?: string;
+  fileName?: string;
+  current?: number;
+  total?: number;
+  status?: string;
+  progress?: number;
+};
+
 interface Window {
   fileKb: {
     load: () => Promise<FileKbStoreData>;
@@ -146,6 +155,7 @@ interface Window {
       error: string;
       indexedAt: string;
     }>>;
+    onOcrProgress: (callback: (progress: OcrProgressPayload) => void) => () => void;
     searchContent: (query: string) => Promise<string[]>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;

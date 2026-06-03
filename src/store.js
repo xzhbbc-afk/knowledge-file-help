@@ -5,7 +5,7 @@ const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
 const XLSX = require("xlsx");
 const { PDFParse } = require("pdf-parse");
-const { recognize } = require("tesseract.js");
+const { createWorker } = require("tesseract.js");
 
 const defaultData = {
   categories: [],
@@ -20,6 +20,12 @@ const defaultData = {
 
 const TEXT_INDEX_LIMIT = 100000;
 const OCR_FILE_SIZE_LIMIT = 10 * 1024 * 1024;
+const OCR_LANGS = ["chi_sim", "eng"];
+const OCR_LANG_CODE = OCR_LANGS.join("+");
+const OCR_LANG_PACKAGE_PATHS = {
+  chi_sim: path.join(__dirname, "..", "node_modules", "@tesseract.js-data", "chi_sim", "4.0.0_best_int", "chi_sim.traineddata.gz"),
+  eng: path.join(__dirname, "..", "node_modules", "@tesseract.js-data", "eng", "4.0.0_best_int", "eng.traineddata.gz")
+};
 const PLAIN_TEXT_EXTS = new Set([
   "txt",
   "md",
@@ -125,7 +131,7 @@ async function extractContentText(file) {
   throw new Error("暂不支持该文件类型");
 }
 
-async function extractOcrText(file) {
+async function extractOcrText(file, options = {}) {
   const ext = String(file.ext || "").toLowerCase();
   if (!OCR_IMAGE_EXTS.has(ext)) throw new Error("暂不支持该图片类型");
   if (!file.path || !fs.existsSync(file.path)) throw new Error("文件不存在");
@@ -135,14 +141,50 @@ async function extractOcrText(file) {
     throw new Error(`图片超过 ${Math.round(OCR_FILE_SIZE_LIMIT / 1024 / 1024)}MB，暂不进行 OCR`);
   }
 
-  const result = await recognize(file.path, "chi_sim+eng");
-  return String(result?.data?.text || "").slice(0, TEXT_INDEX_LIMIT);
+  const worker = await createWorker(OCR_LANG_CODE, 1, {
+    langPath: options.langPath,
+    cachePath: options.cachePath,
+    gzip: true,
+    errorHandler: () => {},
+    logger: (message) => {
+      if (typeof options.onProgress === "function") {
+        options.onProgress({
+          fileId: file.id,
+          fileName: file.name,
+          status: message.status || "ocr",
+          progress: Number(message.progress || 0)
+        });
+      }
+    }
+  });
+
+  try {
+    const result = await worker.recognize(file.path);
+    return String(result?.data?.text || "").slice(0, TEXT_INDEX_LIMIT);
+  } finally {
+    await worker.terminate();
+  }
 }
 
 async function createStore(userDataPath) {
   const dataPath = path.join(userDataPath, "metadata.sqlite");
   const legacyDataPath = path.join(userDataPath, "file-kb-store.json");
+  const ocrCachePath = path.join(userDataPath, "tessdata");
   const SQL = await sql();
+
+  function ensureOcrLanguageFiles() {
+    fs.mkdirSync(ocrCachePath, { recursive: true });
+    OCR_LANGS.forEach((lang) => {
+      const sourcePath = OCR_LANG_PACKAGE_PATHS[lang];
+      const targetPath = path.join(ocrCachePath, `${lang}.traineddata.gz`);
+      if (!fs.existsSync(sourcePath)) {
+        throw new Error(`缺少 OCR 语言包：${lang}`);
+      }
+      if (!fs.existsSync(targetPath) || fs.statSync(targetPath).size !== fs.statSync(sourcePath).size) {
+        fs.copyFileSync(sourcePath, targetPath);
+      }
+    });
+  }
 
   function openDatabase() {
     if (fs.existsSync(dataPath)) {
@@ -507,15 +549,27 @@ async function createStore(userDataPath) {
     return results;
   }
 
-  async function indexOcrFiles(files) {
+  async function indexOcrFiles(files, onProgress) {
     const db = openDatabase();
     execSchema(db);
     const results = [];
+    ensureOcrLanguageFiles();
 
     db.run("BEGIN TRANSACTION");
     try {
-      for (const file of files) {
+      for (const [index, file] of files.entries()) {
         const ext = String(file.ext || "").toLowerCase();
+        if (typeof onProgress === "function") {
+          onProgress({
+            fileId: file.id,
+            fileName: file.name,
+            current: index + 1,
+            total: files.length,
+            status: "准备 OCR",
+            progress: 0
+          });
+        }
+
         if (!OCR_IMAGE_EXTS.has(ext)) {
           const indexedAt = new Date().toISOString();
           db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
@@ -539,7 +593,19 @@ async function createStore(userDataPath) {
         }
 
         try {
-          const content = await extractOcrText(file);
+          const content = await extractOcrText(file, {
+            langPath: ocrCachePath,
+            cachePath: ocrCachePath,
+            onProgress: (progress) => {
+              if (typeof onProgress === "function") {
+                onProgress({
+                  current: index + 1,
+                  total: files.length,
+                  ...progress
+                });
+              }
+            }
+          });
           const indexedAt = new Date().toISOString();
           db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
           db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
@@ -552,6 +618,16 @@ async function createStore(userDataPath) {
             content
           ]);
           results.push({ id: file.id, status: "indexed", source: "ocr", error: "", indexedAt });
+          if (typeof onProgress === "function") {
+            onProgress({
+              fileId: file.id,
+              fileName: file.name,
+              current: index + 1,
+              total: files.length,
+              status: "完成",
+              progress: 1
+            });
+          }
         } catch (error) {
           const indexedAt = new Date().toISOString();
           db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
