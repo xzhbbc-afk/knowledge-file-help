@@ -91,7 +91,8 @@ const emptyStore: FileKbStoreData = {
   rules: [],
   settings: {
     libraryDir: "",
-    archiveRuleScope: "root"
+    archiveRuleScope: "root",
+    ocrLanguage: "chi_sim+eng"
   }
 };
 
@@ -145,7 +146,7 @@ export default function App() {
   const [selectedFileId, setSelectedFileId] = useState("");
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [contentMatchedIds, setContentMatchedIds] = useState<string[]>([]);
+  const [contentMatches, setContentMatches] = useState<ContentSearchMatch[]>([]);
   const [tagFilter, setTagFilter] = useState("");
   const [detailCategoryId, setDetailCategoryId] = useState("");
   const [detailTags, setDetailTags] = useState<string[]>([]);
@@ -258,16 +259,16 @@ export default function App() {
     const query = search.trim();
 
     if (!query) {
-      setContentMatchedIds([]);
+      setContentMatches([]);
       return;
     }
 
     const timer = window.setTimeout(async () => {
       try {
-        const ids = await window.fileKb.searchContent(query);
-        if (!canceled) setContentMatchedIds(ids);
+        const matches = await window.fileKb.searchContent(query);
+        if (!canceled) setContentMatches(matches);
       } catch (_error) {
-        if (!canceled) setContentMatchedIds([]);
+        if (!canceled) setContentMatches([]);
       }
     }, 220);
 
@@ -286,17 +287,22 @@ export default function App() {
   const filteredFiles = useMemo(() => {
     const categoryIds = selectedCategoryId ? [selectedCategoryId, ...descendantsOf(selectedCategoryId)] : [];
     const query = search.toLowerCase();
-    const contentMatches = new Set(contentMatchedIds);
+    const contentMatchedIds = new Set(contentMatches.map((match) => match.fileId));
 
     return data.files.filter((file) => {
       const matchesCategory = !categoryIds.length || categoryIds.includes(file.categoryId);
       if (!matchesCategory) return false;
       const matchesTag = !tagFilter || file.tags.includes(tagFilter);
       const haystack = [file.name, file.ext, file.note, categoryPath(file.categoryId), ...file.tags].join(" ").toLowerCase();
-      const matchesSearch = !query || haystack.includes(query) || contentMatches.has(file.id);
+      const matchesSearch = !query || haystack.includes(query) || contentMatchedIds.has(file.id);
       return matchesTag && matchesSearch;
     });
-  }, [data.files, selectedCategoryId, search, tagFilter, data.categories, contentMatchedIds]);
+  }, [data.files, selectedCategoryId, search, tagFilter, data.categories, contentMatches]);
+
+  const contentMatchByFileId = useMemo(
+    () => new Map(contentMatches.map((match) => [match.fileId, match])),
+    [contentMatches]
+  );
 
   function withSyncedTags(nextData: FileKbStoreData) {
     const normalized = normalizeStoreData(nextData);
@@ -446,8 +452,8 @@ export default function App() {
     };
   }
 
-  function matchingRuleForFile(file: FileRecord, rules: RuleRecord[]) {
-    const text = `${file.name} ${file.ext} ${file.path} ${file.note}`.toLowerCase();
+  function matchingRuleForFile(file: FileRecord, rules: RuleRecord[], indexedContent = "") {
+    const text = `${file.name} ${file.ext} ${file.path} ${file.note} ${indexedContent}`.toLowerCase();
     return rules.find((rule) => {
       if (!rule.enabled) return false;
       return rule.keywords.some((keyword) => text.includes(keyword.toLowerCase()));
@@ -476,6 +482,7 @@ export default function App() {
   async function applyRulesToExistingFiles(rulesToApply = data.rules) {
     try {
       const rules = normalizedRules(rulesToApply);
+      const indexedContentByFileId = await window.fileKb.contentTextByFileIds(data.files.map((file) => file.id));
       let changedCount = 0;
       const nextFiles: FileRecord[] = [];
 
@@ -485,7 +492,7 @@ export default function App() {
           continue;
         }
 
-        const rule = matchingRuleForFile(file, rules);
+        const rule = matchingRuleForFile(file, rules, indexedContentByFileId[file.id] || "");
         if (!rule) {
           nextFiles.push(file);
           continue;
@@ -866,7 +873,10 @@ export default function App() {
 
       setOcrRunning(true);
       setOcrProgress({ current: 0, total: candidates.length, status: "准备 OCR", progress: 0 });
-      const results = await window.fileKb.indexOcrFiles(candidates);
+      const results = await window.fileKb.indexOcrFiles({
+        files: candidates,
+        language: data.settings.ocrLanguage || "chi_sim+eng"
+      });
       const resultById = new Map(results.map((result) => [result.id, result]));
       const nextFiles = data.files.map((file) => {
         const result = resultById.get(file.id);
@@ -1269,6 +1279,9 @@ export default function App() {
                   </Paper>
                 ) : (
                   filteredFiles.map((file) => (
+                    (() => {
+                      const contentMatch = contentMatchByFileId.get(file.id);
+                      return (
                     <Paper
                       key={file.id}
                       className={`fileCard ${selectedFileId === file.id ? "active" : ""}`}
@@ -1289,10 +1302,18 @@ export default function App() {
                           {file.contentIndexStatus === "indexed" && <Badge variant="light" color={contentIndexBadgeColor(file)}>{contentIndexLabel(file)}</Badge>}
                           {file.contentIndexStatus === "skipped" && <Badge variant="light" color="gray">不支持全文</Badge>}
                           {file.contentIndexStatus === "failed" && <Badge variant="light" color="red">索引失败</Badge>}
+                          {contentMatch && <Badge variant="light" color="violet">{contentMatch.source === "ocr" ? "OCR 命中" : "内容命中"}</Badge>}
                           {file.tags.map((tag) => <Badge key={tag} variant="light" color="orange">{tag}</Badge>)}
                         </Group>
+                        {contentMatch && (
+                          <Text size="xs" c="dimmed" lineClamp={2}>
+                            {contentMatch.snippet}
+                          </Text>
+                        )}
                       </Stack>
                     </Paper>
+                      );
+                    })()
                   ))
                 )}
               </Stack>
@@ -1463,6 +1484,16 @@ export default function App() {
             label="当前目录"
             value={data.settings.libraryDir || "未设置"}
             readOnly
+          />
+          <Select
+            label="OCR 语言"
+            data={[
+              { value: "chi_sim+eng", label: "中文 + 英文" },
+              { value: "chi_sim", label: "仅中文" },
+              { value: "eng", label: "仅英文" }
+            ]}
+            value={data.settings.ocrLanguage || "chi_sim+eng"}
+            onChange={(value) => persist({ ...data, settings: { ...data.settings, ocrLanguage: (value || "chi_sim+eng") as OcrLanguage } })}
           />
           <Paper p="sm" withBorder>
             <Stack gap={6}>

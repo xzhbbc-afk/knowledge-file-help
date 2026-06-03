@@ -51,6 +51,12 @@ function markdownEscape(value) {
     .trim();
 }
 
+function summarizeText(value, maxLength = 120) {
+  const cleaned = String(value || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
+}
+
 function markdownLinkForFile(indexDir, file) {
   if (!file.path) return markdownEscape(file.name);
   const relative = path.relative(indexDir, file.path).replace(/\\/g, "/");
@@ -91,10 +97,10 @@ function createObsidianIndexes(libraryDir, categories, files) {
       .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
       .map((file) => {
         const tags = Array.isArray(file.tags) ? file.tags.join(", ") : "";
-        return `| ${markdownLinkForFile(indexDir, file)} | ${markdownEscape(tags)} | ${markdownEscape(file.note)} |`;
+        return `| ${markdownLinkForFile(indexDir, file)} | ${markdownEscape(tags)} | ${markdownEscape(file.note)} | ${markdownEscape(file.indexSummary)} |`;
       });
 
-    return ["| 文件 | 标签 | 备注 |", "| --- | --- | --- |", ...rows].join("\n");
+    return ["| 文件 | 标签 | 备注 | 索引摘要 |", "| --- | --- | --- | --- |", ...rows].join("\n");
   }
 
   const rootChildren = categories
@@ -324,7 +330,15 @@ ipcMain.handle("dirs:sync-category-folders", async (_event, payload) => {
   const categories = Array.isArray(payload?.categories) ? payload.categories : [];
   const files = Array.isArray(payload?.files) ? payload.files : [];
   createCategoryFolders(libraryDir, categories);
-  createObsidianIndexes(libraryDir, categories, files);
+  const contentByFileId = store.contentTextByFileIds(files.map((file) => file.id));
+  createObsidianIndexes(
+    libraryDir,
+    categories,
+    files.map((file) => ({
+      ...file,
+      indexSummary: summarizeText(contentByFileId[file.id])
+    }))
+  );
   return { ok: true };
 });
 
@@ -456,16 +470,22 @@ ipcMain.handle("content:index-text-files", async (_event, files) => {
   return await store.indexTextFiles(Array.isArray(files) ? files : []);
 });
 
-ipcMain.handle("content:index-ocr-files", async (_event, files) => {
+ipcMain.handle("content:index-ocr-files", async (_event, payload) => {
+  const files = Array.isArray(payload) ? payload : Array.isArray(payload?.files) ? payload.files : [];
+  const language = Array.isArray(payload) ? "chi_sim+eng" : payload?.language || "chi_sim+eng";
   return await store.indexOcrFiles(Array.isArray(files) ? files : [], (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("content:ocr-progress", progress);
     }
-  });
+  }, { language });
 });
 
 ipcMain.handle("content:search", async (_event, query) => {
   return store.searchContent(query);
+});
+
+ipcMain.handle("content:text-by-file-ids", async (_event, fileIds) => {
+  return store.contentTextByFileIds(fileIds);
 });
 
 ipcMain.handle("content:get-index", async (_event, fileId) => {

@@ -14,7 +14,8 @@ const defaultData = {
   rules: [],
   settings: {
     libraryDir: "",
-    archiveRuleScope: "root"
+    archiveRuleScope: "root",
+    ocrLanguage: "chi_sim+eng"
   }
 };
 
@@ -141,7 +142,7 @@ async function extractOcrText(file, options = {}) {
     throw new Error(`图片超过 ${Math.round(OCR_FILE_SIZE_LIMIT / 1024 / 1024)}MB，暂不进行 OCR`);
   }
 
-  const worker = await createWorker(OCR_LANG_CODE, 1, {
+  const worker = await createWorker(options.language || OCR_LANG_CODE, 1, {
     langPath: options.langPath,
     cachePath: options.cachePath,
     gzip: true,
@@ -172,9 +173,10 @@ async function createStore(userDataPath) {
   const ocrCachePath = path.join(userDataPath, "tessdata");
   const SQL = await sql();
 
-  function ensureOcrLanguageFiles() {
+  function ensureOcrLanguageFiles(language = OCR_LANG_CODE) {
     fs.mkdirSync(ocrCachePath, { recursive: true });
-    OCR_LANGS.forEach((lang) => {
+    const langs = String(language || OCR_LANG_CODE).split("+").filter((lang) => OCR_LANGS.includes(lang));
+    langs.forEach((lang) => {
       const sourcePath = OCR_LANG_PACKAGE_PATHS[lang];
       const targetPath = path.join(ocrCachePath, `${lang}.traineddata.gz`);
       if (!fs.existsSync(sourcePath)) {
@@ -549,11 +551,12 @@ async function createStore(userDataPath) {
     return results;
   }
 
-  async function indexOcrFiles(files, onProgress) {
+  async function indexOcrFiles(files, onProgress, options = {}) {
     const db = openDatabase();
     execSchema(db);
     const results = [];
-    ensureOcrLanguageFiles();
+    const language = options.language || OCR_LANG_CODE;
+    ensureOcrLanguageFiles(language);
 
     db.run("BEGIN TRANSACTION");
     try {
@@ -594,6 +597,7 @@ async function createStore(userDataPath) {
 
         try {
           const content = await extractOcrText(file, {
+            language,
             langPath: ocrCachePath,
             cachePath: ocrCachePath,
             onProgress: (progress) => {
@@ -661,12 +665,38 @@ async function createStore(userDataPath) {
     const db = openDatabase();
     execSchema(db);
     const lowered = trimmed.toLowerCase();
-    const rows = queryAll(db, "SELECT file_id AS fileId, content FROM content_index WHERE status = 'indexed'");
+    const rows = queryAll(db, "SELECT file_id AS fileId, source, content FROM content_index WHERE status = 'indexed'");
     db.close();
     return rows
-      .filter((row) => String(row.content || "").toLowerCase().includes(lowered))
+      .map((row) => {
+        const content = String(row.content || "");
+        const index = content.toLowerCase().indexOf(lowered);
+        if (index < 0) return null;
+        const start = Math.max(index - 36, 0);
+        const end = Math.min(index + trimmed.length + 72, content.length);
+        return {
+          fileId: row.fileId,
+          source: row.source || "text",
+          snippet: content.slice(start, end).replace(/\s+/g, " ").trim()
+        };
+      })
+      .filter(Boolean)
       .slice(0, 500)
-      .map((row) => row.fileId);
+      .map((row) => row);
+  }
+
+  function contentTextByFileIds(fileIds) {
+    const ids = Array.isArray(fileIds) ? fileIds.filter(Boolean) : [];
+    if (!ids.length) return {};
+    const db = openDatabase();
+    execSchema(db);
+    const result = {};
+    ids.forEach((fileId) => {
+      const rows = queryAll(db, "SELECT content FROM content_index WHERE file_id = ? AND status = 'indexed'", [fileId]);
+      result[fileId] = rows[0]?.content || "";
+    });
+    db.close();
+    return result;
   }
 
   function getContentIndex(fileId) {
@@ -707,7 +737,7 @@ async function createStore(userDataPath) {
     return Number(rows[0]?.total || 0);
   }
 
-  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, indexOcrFiles, searchContent, getContentIndex, contentIndexSize };
+  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, indexOcrFiles, searchContent, contentTextByFileIds, getContentIndex, contentIndexSize };
 }
 
 module.exports = { createStore };

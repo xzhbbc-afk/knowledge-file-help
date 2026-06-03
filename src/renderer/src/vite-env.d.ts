@@ -11,6 +11,7 @@ type FileKbStoreData = {
 type AppSettings = {
   libraryDir: string;
   archiveRuleScope: ArchiveRuleScope;
+  ocrLanguage: OcrLanguage;
 };
 
 type CategoryRecord = {
@@ -72,6 +73,7 @@ type ImportedFile = ChosenFile & {
 
 type ImportMode = "index" | "copy" | "move";
 type ArchiveRuleScope = "root" | "all";
+type OcrLanguage = "chi_sim+eng" | "chi_sim" | "eng";
 type ContentIndexStatus = "none" | "indexed" | "failed" | "skipped";
 type ContentIndexSource = "text" | "ocr";
 
@@ -103,6 +105,12 @@ type ContentIndexDetail = {
   error: string;
   length: number;
   content: string;
+};
+
+type ContentSearchMatch = {
+  fileId: string;
+  source: ContentIndexSource;
+  snippet: string;
 };
 
 interface Window {
@@ -157,7 +165,7 @@ interface Window {
       error: string;
       indexedAt: string;
     }>>;
-    indexOcrFiles: (files: FileRecord[]) => Promise<Array<{
+    indexOcrFiles: (payload: { files: FileRecord[]; language: OcrLanguage }) => Promise<Array<{
       id: string;
       status: ContentIndexStatus;
       source?: ContentIndexSource;
@@ -165,7 +173,8 @@ interface Window {
       indexedAt: string;
     }>>;
     onOcrProgress: (callback: (progress: OcrProgressPayload) => void) => () => void;
-    searchContent: (query: string) => Promise<string[]>;
+    searchContent: (query: string) => Promise<ContentSearchMatch[]>;
+    contentTextByFileIds: (fileIds: string[]) => Promise<Record<string, string>>;
     getContentIndex: (fileId: string) => Promise<ContentIndexDetail>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;

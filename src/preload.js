@@ -14,13 +14,14 @@ contextBridge.exposeInMainWorld("fileKb", {
   checkFiles: (files) => ipcRenderer.invoke("files:check", files),
   scanLibrary: (payload) => ipcRenderer.invoke("library:scan", payload),
   indexTextFiles: (files) => ipcRenderer.invoke("content:index-text-files", files),
-  indexOcrFiles: (files) => ipcRenderer.invoke("content:index-ocr-files", files),
+  indexOcrFiles: (payload) => ipcRenderer.invoke("content:index-ocr-files", payload),
   onOcrProgress: (callback) => {
     const listener = (_event, progress) => callback(progress);
     ipcRenderer.on("content:ocr-progress", listener);
     return () => ipcRenderer.removeListener("content:ocr-progress", listener);
   },
   searchContent: (query) => ipcRenderer.invoke("content:search", query),
+  contentTextByFileIds: (fileIds) => ipcRenderer.invoke("content:text-by-file-ids", fileIds),
   getContentIndex: (fileId) => ipcRenderer.invoke("content:get-index", fileId),
   openFile: (filePath) => ipcRenderer.invoke("files:open", filePath),
   showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath)
