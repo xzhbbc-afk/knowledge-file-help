@@ -2,7 +2,9 @@ const fs = require("fs");
 const path = require("path");
 const initSqlJs = require("sql.js/dist/sql-asm.js");
 const mammoth = require("mammoth");
+const WordExtractor = require("word-extractor");
 const XLSX = require("xlsx");
+const pdfParse = require("pdf-parse");
 
 const defaultData = {
   categories: [],
@@ -53,8 +55,10 @@ const PLAIN_TEXT_EXTS = new Set([
   "php",
   "rb"
 ]);
-const OFFICE_TEXT_EXTS = new Set(["docx", "xlsx", "xls"]);
-const SUPPORTED_TEXT_EXTS = new Set([...PLAIN_TEXT_EXTS, ...OFFICE_TEXT_EXTS]);
+const OFFICE_TEXT_EXTS = new Set(["doc", "docx", "xlsx", "xls"]);
+const PDF_TEXT_EXTS = new Set(["pdf"]);
+const SUPPORTED_TEXT_EXTS = new Set([...PLAIN_TEXT_EXTS, ...OFFICE_TEXT_EXTS, ...PDF_TEXT_EXTS]);
+const wordExtractor = new WordExtractor();
 
 let SQLPromise;
 
@@ -89,6 +93,11 @@ async function extractContentText(file) {
     return String(result.value || "").slice(0, TEXT_INDEX_LIMIT);
   }
 
+  if (ext === "doc") {
+    const result = await wordExtractor.extract(file.path);
+    return String(result.getBody() || "").slice(0, TEXT_INDEX_LIMIT);
+  }
+
   if (ext === "xlsx" || ext === "xls") {
     const workbook = XLSX.readFile(file.path, { cellDates: true });
     const chunks = [];
@@ -98,6 +107,11 @@ async function extractContentText(file) {
       chunks.push(XLSX.utils.sheet_to_csv(sheet));
     });
     return chunks.join("\n").slice(0, TEXT_INDEX_LIMIT);
+  }
+
+  if (ext === "pdf") {
+    const data = await pdfParse(fs.readFileSync(file.path));
+    return String(data.text || "").slice(0, TEXT_INDEX_LIMIT);
   }
 
   throw new Error("暂不支持该文件类型");
@@ -402,7 +416,7 @@ async function createStore(userDataPath) {
           results.push({
             id: file.id,
             status: "skipped",
-            error: ext === "doc" ? "暂不支持老版 Word .doc 二进制格式，请转为 .docx 后建立索引" : "暂不支持该文件类型",
+            error: "暂不支持该文件类型",
             indexedAt: new Date().toISOString()
           });
           continue;
