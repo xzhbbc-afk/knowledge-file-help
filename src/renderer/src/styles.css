@@ -78,15 +78,25 @@ body {
   min-width: 0;
   padding-left: 8px;
   padding-right: 8px;
+  text-align: left;
 }
 
 .categoryButton .mantine-Button-label {
+  display: block;
+  width: 100%;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.categoryButton .mantine-Button-inner {
+  justify-content: flex-start;
+  width: 100%;
+}
+
 .categoryActions {
+  flex: 0 0 auto;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
