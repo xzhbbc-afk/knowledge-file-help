@@ -234,8 +234,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  store = createStore(app.getPath("userData"));
+app.whenReady().then(async () => {
+  store = await createStore(app.getPath("userData"));
   createWindow();
   globalShortcut.register("F12", () => {
     if (mainWindow) mainWindow.webContents.toggleDevTools();

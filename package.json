@@ -26,6 +26,7 @@
     "@mantine/notifications": "^9.3.0",
     "lucide-react": "^1.17.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "sql.js": "^1.14.1"
   }
 }
