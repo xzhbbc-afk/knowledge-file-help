@@ -453,11 +453,32 @@ export default function App() {
         const { nextCategories, newFiles, newCategoryCount } = buildLibrarySyncResult(data, scanResult);
         if (!newFiles.length && !newCategoryCount) return;
 
-        await persist({ ...data, categories: nextCategories, files: [...newFiles, ...data.files] });
-        if (newFiles[0]) setSelectedFileId(newFiles[0].id);
+        let indexedNewFiles = newFiles;
+        if (newFiles.length) {
+          try {
+            const indexResults = await window.fileKb.indexTextFiles(newFiles);
+            const resultById = new Map(indexResults.map((result) => [result.id, result]));
+            indexedNewFiles = newFiles.map((file) => {
+              const result = resultById.get(file.id);
+              if (!result) return file;
+              return {
+                ...file,
+                contentIndexStatus: result.status,
+                contentIndexSource: result.source || "text",
+                contentIndexedAt: result.indexedAt,
+                contentIndexError: result.error || undefined
+              };
+            });
+          } catch (error) {
+            notifyError("自动建立新增文件内容索引失败", error);
+          }
+        }
+
+        await persist({ ...data, categories: nextCategories, files: [...indexedNewFiles, ...data.files] });
+        if (indexedNewFiles[0]) setSelectedFileId(indexedNewFiles[0].id);
         notifications.show({
           title: "知识库已自动更新",
-          message: `新增 ${newCategoryCount} 个分类，${newFiles.length} 个文件索引`,
+          message: `新增 ${newCategoryCount} 个分类，${indexedNewFiles.length} 个文件索引`,
           color: "teal"
         });
       } catch (error) {
@@ -862,12 +883,33 @@ export default function App() {
         return;
       }
 
-      await persist({ ...data, categories: nextCategories, files: [...newFiles, ...data.files] });
-      if (newFiles[0]) setSelectedFileId(newFiles[0].id);
+      let indexedNewFiles = newFiles;
+      if (newFiles.length) {
+        try {
+          const indexResults = await window.fileKb.indexTextFiles(newFiles);
+          const resultById = new Map(indexResults.map((result) => [result.id, result]));
+          indexedNewFiles = newFiles.map((file) => {
+            const result = resultById.get(file.id);
+            if (!result) return file;
+            return {
+              ...file,
+              contentIndexStatus: result.status,
+              contentIndexSource: result.source || "text",
+              contentIndexedAt: result.indexedAt,
+              contentIndexError: result.error || undefined
+            };
+          });
+        } catch (error) {
+          notifyError("自动建立新增文件内容索引失败", error);
+        }
+      }
+
+      await persist({ ...data, categories: nextCategories, files: [...indexedNewFiles, ...data.files] });
+      if (indexedNewFiles[0]) setSelectedFileId(indexedNewFiles[0].id);
       if (showNotification) {
         notifications.show({
           title: "扫描完成",
-          message: `新增 ${newCategoryCount} 个分类，${newFiles.length} 个文件索引`,
+          message: `新增 ${newCategoryCount} 个分类，${indexedNewFiles.length} 个文件索引`,
           color: "teal"
         });
       }
