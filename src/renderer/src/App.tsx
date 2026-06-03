@@ -51,46 +51,6 @@ const seededCategoryIds = new Set([
 ]);
 const seededRuleIds = new Set(["rule_water", "rule_air", "rule_noise"]);
 const seededTags = new Set(["废水", "废气", "噪声", "固废", "报告", "标准", "项目"]);
-const CONTENT_INDEX_EXTS = new Set([
-  "txt",
-  "md",
-  "csv",
-  "tsv",
-  "json",
-  "xml",
-  "html",
-  "htm",
-  "css",
-  "js",
-  "jsx",
-  "ts",
-  "tsx",
-  "log",
-  "ini",
-  "conf",
-  "cfg",
-  "yml",
-  "yaml",
-  "sql",
-  "bat",
-  "cmd",
-  "ps1",
-  "sh",
-  "py",
-  "java",
-  "c",
-  "cpp",
-  "h",
-  "hpp",
-  "cs",
-  "go",
-  "rs",
-  "php",
-  "rb",
-  "docx",
-  "xlsx",
-  "xls"
-]);
 
 type CategoryDraft = {
   id: string;
@@ -803,9 +763,9 @@ export default function App() {
 
   async function indexTextContent() {
     try {
-      const candidates = data.files.filter((file) => CONTENT_INDEX_EXTS.has(String(file.ext || "").toLowerCase()));
+      const candidates = data.files;
       if (!candidates.length) {
-        notifications.show({ title: "没有可索引文件", message: "当前仅索引文字类文件；图片、视频、音频等资源文件会跳过。", color: "gray" });
+        notifications.show({ title: "没有文件", message: "当前没有可建立内容索引的文件。", color: "gray" });
         return;
       }
 
@@ -1204,6 +1164,8 @@ export default function App() {
                         <Group gap={6}>
                           {file.missing && <Badge variant="light" color="red">文件丢失</Badge>}
                           {file.contentIndexStatus === "indexed" && <Badge variant="light" color="blue">全文</Badge>}
+                          {file.contentIndexStatus === "skipped" && <Badge variant="light" color="gray">不支持全文</Badge>}
+                          {file.contentIndexStatus === "failed" && <Badge variant="light" color="red">索引失败</Badge>}
                           {file.tags.map((tag) => <Badge key={tag} variant="light" color="orange">{tag}</Badge>)}
                         </Group>
                       </Stack>
@@ -1236,7 +1198,7 @@ export default function App() {
                 )}
                 <Group gap="xs">
                   <Badge color={selectedFile.contentIndexStatus === "indexed" ? "blue" : selectedFile.contentIndexStatus === "failed" ? "red" : "gray"}>
-                    内容索引：{selectedFile.contentIndexStatus === "indexed" ? "已建立" : selectedFile.contentIndexStatus === "failed" ? "失败" : "未建立"}
+                    内容索引：{selectedFile.contentIndexStatus === "indexed" ? "已建立" : selectedFile.contentIndexStatus === "failed" ? "失败" : selectedFile.contentIndexStatus === "skipped" ? "不支持" : "未建立"}
                   </Badge>
                   {selectedFile.contentIndexedAt && <Text size="xs" c="dimmed">{new Date(selectedFile.contentIndexedAt).toLocaleString()}</Text>}
                 </Group>

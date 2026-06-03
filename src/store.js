@@ -402,7 +402,7 @@ async function createStore(userDataPath) {
           results.push({
             id: file.id,
             status: "skipped",
-            error: "暂不支持该文件类型",
+            error: ext === "doc" ? "暂不支持老版 Word .doc 二进制格式，请转为 .docx 后建立索引" : "暂不支持该文件类型",
             indexedAt: new Date().toISOString()
           });
           continue;
