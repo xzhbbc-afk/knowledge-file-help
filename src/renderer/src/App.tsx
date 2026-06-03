@@ -28,6 +28,7 @@ import {
   FilePlus,
   FolderOpen,
   HardDrive,
+  ScanText,
   Pencil,
   Plus,
   RefreshCw,
@@ -51,6 +52,7 @@ const seededCategoryIds = new Set([
 ]);
 const seededRuleIds = new Set(["rule_water", "rule_air", "rule_noise"]);
 const seededTags = new Set(["废水", "废气", "噪声", "固废", "报告", "标准", "项目"]);
+const ocrImageExts = new Set(["png", "jpg", "jpeg", "webp", "bmp"]);
 
 type CategoryDraft = {
   id: string;
@@ -156,6 +158,19 @@ export default function App() {
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
+
+  function contentIndexLabel(file: FileRecord) {
+    if (file.contentIndexStatus === "indexed") return file.contentIndexSource === "ocr" ? "OCR" : "全文";
+    if (file.contentIndexStatus === "failed") return "失败";
+    if (file.contentIndexStatus === "skipped") return "不支持";
+    return "未建立";
+  }
+
+  function contentIndexBadgeColor(file: FileRecord) {
+    if (file.contentIndexStatus === "indexed") return file.contentIndexSource === "ocr" ? "violet" : "blue";
+    if (file.contentIndexStatus === "failed") return "red";
+    return "gray";
+  }
 
   function childCategories(parentId: string | null) {
     return data.categories
@@ -777,6 +792,7 @@ export default function App() {
         return {
           ...file,
           contentIndexStatus: result.status,
+          contentIndexSource: result.source || "text",
           contentIndexedAt: result.indexedAt,
           contentIndexError: result.error || undefined
         };
@@ -791,6 +807,41 @@ export default function App() {
       });
     } catch (error) {
       notifyError("建立内容索引失败", error);
+    }
+  }
+
+  async function indexOcrContent(targetFiles?: FileRecord[]) {
+    try {
+      const sourceFiles = targetFiles || data.files;
+      const candidates = sourceFiles.filter((file) => ocrImageExts.has(String(file.ext || "").toLowerCase()));
+      if (!candidates.length) {
+        notifications.show({ title: "没有图片", message: "当前没有可进行 OCR 的图片文件。", color: "gray" });
+        return;
+      }
+
+      const results = await window.fileKb.indexOcrFiles(candidates);
+      const resultById = new Map(results.map((result) => [result.id, result]));
+      const nextFiles = data.files.map((file) => {
+        const result = resultById.get(file.id);
+        if (!result) return file;
+        return {
+          ...file,
+          contentIndexStatus: result.status,
+          contentIndexSource: result.source || "ocr",
+          contentIndexedAt: result.indexedAt,
+          contentIndexError: result.error || undefined
+        };
+      });
+      const indexedCount = results.filter((result) => result.status === "indexed").length;
+      const failedCount = results.filter((result) => result.status === "failed").length;
+      await persist({ ...data, files: nextFiles });
+      notifications.show({
+        title: "OCR 索引完成",
+        message: `成功 ${indexedCount} 个，失败 ${failedCount} 个`,
+        color: failedCount ? "orange" : "teal"
+      });
+    } catch (error) {
+      notifyError("建立 OCR 索引失败", error);
     }
   }
 
@@ -1104,6 +1155,7 @@ export default function App() {
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
           <Button variant="light" leftSection={<Search size={16} />} onClick={indexTextContent}>建立内容索引</Button>
+          <Button variant="light" leftSection={<ScanText size={16} />} onClick={indexOcrContent}>建立 OCR 索引</Button>
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
         </Group>
@@ -1163,7 +1215,7 @@ export default function App() {
                         <Text size="sm" c="dimmed">{categoryPath(file.categoryId)} · {formatSize(file.size)}</Text>
                         <Group gap={6}>
                           {file.missing && <Badge variant="light" color="red">文件丢失</Badge>}
-                          {file.contentIndexStatus === "indexed" && <Badge variant="light" color="blue">全文</Badge>}
+                          {file.contentIndexStatus === "indexed" && <Badge variant="light" color={contentIndexBadgeColor(file)}>{contentIndexLabel(file)}</Badge>}
                           {file.contentIndexStatus === "skipped" && <Badge variant="light" color="gray">不支持全文</Badge>}
                           {file.contentIndexStatus === "failed" && <Badge variant="light" color="red">索引失败</Badge>}
                           {file.tags.map((tag) => <Badge key={tag} variant="light" color="orange">{tag}</Badge>)}
@@ -1197,8 +1249,8 @@ export default function App() {
                   </Alert>
                 )}
                 <Group gap="xs">
-                  <Badge color={selectedFile.contentIndexStatus === "indexed" ? "blue" : selectedFile.contentIndexStatus === "failed" ? "red" : "gray"}>
-                    内容索引：{selectedFile.contentIndexStatus === "indexed" ? "已建立" : selectedFile.contentIndexStatus === "failed" ? "失败" : selectedFile.contentIndexStatus === "skipped" ? "不支持" : "未建立"}
+                  <Badge color={contentIndexBadgeColor(selectedFile)}>
+                    内容索引：{contentIndexLabel(selectedFile)}
                   </Badge>
                   {selectedFile.contentIndexedAt && <Text size="xs" c="dimmed">{new Date(selectedFile.contentIndexedAt).toLocaleString()}</Text>}
                 </Group>
@@ -1251,6 +1303,11 @@ export default function App() {
                 </Stack>
                 <Group gap="sm">
                   <Button leftSection={<Save size={16} />} onClick={saveDetail}>保存修改</Button>
+                  {ocrImageExts.has(String(selectedFile.ext || "").toLowerCase()) && (
+                    <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent([selectedFile])}>
+                      建立 OCR 索引
+                    </Button>
+                  )}
                   {(!selectedFile.importMode || selectedFile.importMode === "index") && (
                     <Button variant="light" color="orange" leftSection={<FolderOpen size={16} />} onClick={() => setMoveIndexedModalOpen(true)}>
                       移动到知识库

@@ -456,6 +456,10 @@ ipcMain.handle("content:index-text-files", async (_event, files) => {
   return await store.indexTextFiles(Array.isArray(files) ? files : []);
 });
 
+ipcMain.handle("content:index-ocr-files", async (_event, files) => {
+  return await store.indexOcrFiles(Array.isArray(files) ? files : []);
+});
+
 ipcMain.handle("content:search", async (_event, query) => {
   return store.searchContent(query);
 });

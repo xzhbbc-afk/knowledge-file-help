@@ -5,6 +5,7 @@ const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
 const XLSX = require("xlsx");
 const { PDFParse } = require("pdf-parse");
+const { recognize } = require("tesseract.js");
 
 const defaultData = {
   categories: [],
@@ -18,6 +19,7 @@ const defaultData = {
 };
 
 const TEXT_INDEX_LIMIT = 100000;
+const OCR_FILE_SIZE_LIMIT = 10 * 1024 * 1024;
 const PLAIN_TEXT_EXTS = new Set([
   "txt",
   "md",
@@ -57,6 +59,7 @@ const PLAIN_TEXT_EXTS = new Set([
 ]);
 const OFFICE_TEXT_EXTS = new Set(["doc", "docx", "xlsx", "xls"]);
 const PDF_TEXT_EXTS = new Set(["pdf"]);
+const OCR_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "bmp"]);
 const SUPPORTED_TEXT_EXTS = new Set([...PLAIN_TEXT_EXTS, ...OFFICE_TEXT_EXTS, ...PDF_TEXT_EXTS]);
 const wordExtractor = new WordExtractor();
 
@@ -120,6 +123,20 @@ async function extractContentText(file) {
   }
 
   throw new Error("暂不支持该文件类型");
+}
+
+async function extractOcrText(file) {
+  const ext = String(file.ext || "").toLowerCase();
+  if (!OCR_IMAGE_EXTS.has(ext)) throw new Error("暂不支持该图片类型");
+  if (!file.path || !fs.existsSync(file.path)) throw new Error("文件不存在");
+
+  const stats = fs.statSync(file.path);
+  if (stats.size > OCR_FILE_SIZE_LIMIT) {
+    throw new Error(`图片超过 ${Math.round(OCR_FILE_SIZE_LIMIT / 1024 / 1024)}MB，暂不进行 OCR`);
+  }
+
+  const result = await recognize(file.path, "chi_sim+eng");
+  return String(result?.data?.text || "").slice(0, TEXT_INDEX_LIMIT);
 }
 
 async function createStore(userDataPath) {
@@ -196,6 +213,7 @@ async function createStore(userDataPath) {
       CREATE TABLE IF NOT EXISTS content_index (
         file_id TEXT PRIMARY KEY,
         status TEXT NOT NULL DEFAULT 'none',
+        source TEXT NOT NULL DEFAULT 'text',
         indexed_at TEXT,
         error TEXT,
         length INTEGER NOT NULL DEFAULT 0,
@@ -205,6 +223,9 @@ async function createStore(userDataPath) {
     const contentColumns = queryAll(db, "PRAGMA table_info(content_index)").map((column) => String(column.name));
     if (!contentColumns.includes("content")) {
       db.run("ALTER TABLE content_index ADD COLUMN content TEXT NOT NULL DEFAULT ''");
+    }
+    if (!contentColumns.includes("source")) {
+      db.run("ALTER TABLE content_index ADD COLUMN source TEXT NOT NULL DEFAULT 'text'");
     }
   }
 
@@ -251,6 +272,8 @@ async function createStore(userDataPath) {
       lastCheckedAt: file.lastCheckedAt || undefined,
       contentIndexStatus:
         queryValues(db, "SELECT status FROM content_index WHERE file_id = ?", [file.id])[0] || "none",
+      contentIndexSource:
+        queryValues(db, "SELECT source FROM content_index WHERE file_id = ?", [file.id])[0] || undefined,
       contentIndexedAt:
         queryValues(db, "SELECT indexed_at FROM content_index WHERE file_id = ?", [file.id])[0] || undefined,
       contentIndexError:
@@ -418,11 +441,23 @@ async function createStore(userDataPath) {
       for (const file of files) {
         const ext = String(file.ext || "").toLowerCase();
         if (!SUPPORTED_TEXT_EXTS.has(ext)) {
+          const indexedAt = new Date().toISOString();
+          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
+          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+            file.id,
+            "skipped",
+            "text",
+            indexedAt,
+            "暂不支持该文件类型",
+            0,
+            ""
+          ]);
           results.push({
             id: file.id,
             status: "skipped",
+            source: "text",
             error: "暂不支持该文件类型",
-            indexedAt: new Date().toISOString()
+            indexedAt
           });
           continue;
         }
@@ -435,9 +470,10 @@ async function createStore(userDataPath) {
           const content = await extractContentText(file);
           const indexedAt = new Date().toISOString();
           db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?)", [
+          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
             file.id,
             "indexed",
+            "text",
             indexedAt,
             null,
             content.length,
@@ -447,15 +483,88 @@ async function createStore(userDataPath) {
         } catch (error) {
           const indexedAt = new Date().toISOString();
           db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?)", [
+          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
             file.id,
             "failed",
+            "text",
             indexedAt,
             error.message || String(error),
             0,
             ""
           ]);
           results.push({ id: file.id, status: "failed", error: error.message || String(error), indexedAt });
+        }
+      }
+      db.run("COMMIT");
+    } catch (error) {
+      db.run("ROLLBACK");
+      db.close();
+      throw error;
+    }
+
+    persistDatabase(db);
+    db.close();
+    return results;
+  }
+
+  async function indexOcrFiles(files) {
+    const db = openDatabase();
+    execSchema(db);
+    const results = [];
+
+    db.run("BEGIN TRANSACTION");
+    try {
+      for (const file of files) {
+        const ext = String(file.ext || "").toLowerCase();
+        if (!OCR_IMAGE_EXTS.has(ext)) {
+          const indexedAt = new Date().toISOString();
+          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
+          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+            file.id,
+            "skipped",
+            "ocr",
+            indexedAt,
+            "暂不支持 OCR 的文件类型",
+            0,
+            ""
+          ]);
+          results.push({
+            id: file.id,
+            status: "skipped",
+            source: "ocr",
+            error: "暂不支持 OCR 的文件类型",
+            indexedAt
+          });
+          continue;
+        }
+
+        try {
+          const content = await extractOcrText(file);
+          const indexedAt = new Date().toISOString();
+          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
+          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+            file.id,
+            "indexed",
+            "ocr",
+            indexedAt,
+            null,
+            content.length,
+            content
+          ]);
+          results.push({ id: file.id, status: "indexed", source: "ocr", error: "", indexedAt });
+        } catch (error) {
+          const indexedAt = new Date().toISOString();
+          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
+          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+            file.id,
+            "failed",
+            "ocr",
+            indexedAt,
+            error.message || String(error),
+            0,
+            ""
+          ]);
+          results.push({ id: file.id, status: "failed", source: "ocr", error: error.message || String(error), indexedAt });
         }
       }
       db.run("COMMIT");
@@ -492,7 +601,7 @@ async function createStore(userDataPath) {
     return Number(rows[0]?.total || 0);
   }
 
-  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, searchContent, contentIndexSize };
+  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, indexOcrFiles, searchContent, contentIndexSize };
 }
 
 module.exports = { createStore };

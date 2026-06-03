@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("fileKb", {
   checkFiles: (files) => ipcRenderer.invoke("files:check", files),
   scanLibrary: (payload) => ipcRenderer.invoke("library:scan", payload),
   indexTextFiles: (files) => ipcRenderer.invoke("content:index-text-files", files),
+  indexOcrFiles: (files) => ipcRenderer.invoke("content:index-ocr-files", files),
   searchContent: (query) => ipcRenderer.invoke("content:search", query),
   openFile: (filePath) => ipcRenderer.invoke("files:open", filePath),
   showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath)

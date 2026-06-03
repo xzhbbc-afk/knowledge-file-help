@@ -39,6 +39,7 @@ type FileRecord = {
   missing?: boolean;
   lastCheckedAt?: string;
   contentIndexStatus?: ContentIndexStatus;
+  contentIndexSource?: ContentIndexSource;
   contentIndexedAt?: string;
   contentIndexError?: string;
 };
@@ -72,6 +73,7 @@ type ImportedFile = ChosenFile & {
 type ImportMode = "index" | "copy" | "move";
 type ArchiveRuleScope = "root" | "all";
 type ContentIndexStatus = "none" | "indexed" | "failed" | "skipped";
+type ContentIndexSource = "text" | "ocr";
 
 type ShellResult = {
   ok: boolean;
@@ -133,6 +135,14 @@ interface Window {
     indexTextFiles: (files: FileRecord[]) => Promise<Array<{
       id: string;
       status: ContentIndexStatus;
+      source?: ContentIndexSource;
+      error: string;
+      indexedAt: string;
+    }>>;
+    indexOcrFiles: (files: FileRecord[]) => Promise<Array<{
+      id: string;
+      status: ContentIndexStatus;
+      source?: ContentIndexSource;
       error: string;
       indexedAt: string;
     }>>;
