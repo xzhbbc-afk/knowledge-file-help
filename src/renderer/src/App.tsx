@@ -51,6 +51,46 @@ const seededCategoryIds = new Set([
 ]);
 const seededRuleIds = new Set(["rule_water", "rule_air", "rule_noise"]);
 const seededTags = new Set(["废水", "废气", "噪声", "固废", "报告", "标准", "项目"]);
+const CONTENT_INDEX_EXTS = new Set([
+  "txt",
+  "md",
+  "csv",
+  "tsv",
+  "json",
+  "xml",
+  "html",
+  "htm",
+  "css",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "log",
+  "ini",
+  "conf",
+  "cfg",
+  "yml",
+  "yaml",
+  "sql",
+  "bat",
+  "cmd",
+  "ps1",
+  "sh",
+  "py",
+  "java",
+  "c",
+  "cpp",
+  "h",
+  "hpp",
+  "cs",
+  "go",
+  "rs",
+  "php",
+  "rb",
+  "docx",
+  "xlsx",
+  "xls"
+]);
 
 type CategoryDraft = {
   id: string;
@@ -763,9 +803,9 @@ export default function App() {
 
   async function indexTextContent() {
     try {
-      const candidates = data.files.filter((file) => ["txt", "md", "csv", "docx", "xlsx"].includes(String(file.ext || "").toLowerCase()));
+      const candidates = data.files.filter((file) => CONTENT_INDEX_EXTS.has(String(file.ext || "").toLowerCase()));
       if (!candidates.length) {
-        notifications.show({ title: "没有可索引文件", message: "当前支持 txt、md、csv、docx、xlsx。", color: "gray" });
+        notifications.show({ title: "没有可索引文件", message: "当前仅索引文字类文件；图片、视频、音频等资源文件会跳过。", color: "gray" });
         return;
       }
 

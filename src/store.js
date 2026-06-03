@@ -16,7 +16,45 @@ const defaultData = {
 };
 
 const TEXT_INDEX_LIMIT = 100000;
-const SUPPORTED_TEXT_EXTS = new Set(["txt", "md", "csv", "docx", "xlsx"]);
+const PLAIN_TEXT_EXTS = new Set([
+  "txt",
+  "md",
+  "csv",
+  "tsv",
+  "json",
+  "xml",
+  "html",
+  "htm",
+  "css",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "log",
+  "ini",
+  "conf",
+  "cfg",
+  "yml",
+  "yaml",
+  "sql",
+  "bat",
+  "cmd",
+  "ps1",
+  "sh",
+  "py",
+  "java",
+  "c",
+  "cpp",
+  "h",
+  "hpp",
+  "cs",
+  "go",
+  "rs",
+  "php",
+  "rb"
+]);
+const OFFICE_TEXT_EXTS = new Set(["docx", "xlsx", "xls"]);
+const SUPPORTED_TEXT_EXTS = new Set([...PLAIN_TEXT_EXTS, ...OFFICE_TEXT_EXTS]);
 
 let SQLPromise;
 
@@ -42,7 +80,7 @@ async function extractContentText(file) {
   const ext = String(file.ext || "").toLowerCase();
   if (!fs.existsSync(file.path)) throw new Error("文件不存在");
 
-  if (ext === "txt" || ext === "md" || ext === "csv") {
+  if (PLAIN_TEXT_EXTS.has(ext)) {
     return fs.readFileSync(file.path, "utf8").slice(0, TEXT_INDEX_LIMIT);
   }
 
@@ -51,7 +89,7 @@ async function extractContentText(file) {
     return String(result.value || "").slice(0, TEXT_INDEX_LIMIT);
   }
 
-  if (ext === "xlsx") {
+  if (ext === "xlsx" || ext === "xls") {
     const workbook = XLSX.readFile(file.path, { cellDates: true });
     const chunks = [];
     workbook.SheetNames.forEach((sheetName) => {
