@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("fileKb", {
   scanLibrary: (payload) => ipcRenderer.invoke("library:scan", payload),
   indexTextFiles: (files) => ipcRenderer.invoke("content:index-text-files", files),
   indexOcrFiles: (payload) => ipcRenderer.invoke("content:index-ocr-files", payload),
+  cancelOcr: () => ipcRenderer.invoke("content:cancel-ocr"),
   onOcrProgress: (callback) => {
     const listener = (_event, progress) => callback(progress);
     ipcRenderer.on("content:ocr-progress", listener);

@@ -9,6 +9,7 @@ let libraryWatcher = null;
 let libraryWatcherDir = "";
 let libraryWatcherTimer = null;
 let libraryWatcherEvents = 0;
+let ocrCancelRequested = false;
 
 function uniqueDestinationPath(directoryPath, fileName) {
   const parsed = path.parse(fileName);
@@ -544,13 +545,19 @@ ipcMain.handle("content:index-text-files", async (_event, files) => {
 });
 
 ipcMain.handle("content:index-ocr-files", async (_event, payload) => {
+  ocrCancelRequested = false;
   const files = Array.isArray(payload) ? payload : Array.isArray(payload?.files) ? payload.files : [];
   const language = Array.isArray(payload) ? "chi_sim+eng" : payload?.language || "chi_sim+eng";
   return await store.indexOcrFiles(Array.isArray(files) ? files : [], (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("content:ocr-progress", progress);
     }
-  }, { language });
+  }, { language, isCanceled: () => ocrCancelRequested });
+});
+
+ipcMain.handle("content:cancel-ocr", async () => {
+  ocrCancelRequested = true;
+  return { ok: true };
 });
 
 ipcMain.handle("content:search", async (_event, query) => {

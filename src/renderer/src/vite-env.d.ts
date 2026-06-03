@@ -186,6 +186,7 @@ interface Window {
       error: string;
       indexedAt: string;
     }>>;
+    cancelOcr: () => Promise<{ ok: boolean }>;
     onOcrProgress: (callback: (progress: OcrProgressPayload) => void) => () => void;
     onLibraryWatchStatus: (callback: (payload: LibraryWatchStatus) => void) => () => void;
     onLibraryWatchChange: (callback: (payload: LibraryWatchChange) => void) => () => void;

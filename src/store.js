@@ -148,6 +148,9 @@ async function extractOcrText(file, options = {}) {
     gzip: true,
     errorHandler: () => {},
     logger: (message) => {
+      if (typeof options.isCanceled === "function" && options.isCanceled()) {
+        throw new Error("OCR 已取消");
+      }
       if (typeof options.onProgress === "function") {
         options.onProgress({
           fileId: file.id,
@@ -160,6 +163,9 @@ async function extractOcrText(file, options = {}) {
   });
 
   try {
+    if (typeof options.isCanceled === "function" && options.isCanceled()) {
+      throw new Error("OCR 已取消");
+    }
     const result = await worker.recognize(file.path);
     return String(result?.data?.text || "").slice(0, TEXT_INDEX_LIMIT);
   } finally {
@@ -561,6 +567,9 @@ async function createStore(userDataPath) {
     db.run("BEGIN TRANSACTION");
     try {
       for (const [index, file] of files.entries()) {
+        if (typeof options.isCanceled === "function" && options.isCanceled()) {
+          break;
+        }
         const ext = String(file.ext || "").toLowerCase();
         if (typeof onProgress === "function") {
           onProgress({
@@ -600,6 +609,7 @@ async function createStore(userDataPath) {
             language,
             langPath: ocrCachePath,
             cachePath: ocrCachePath,
+            isCanceled: options.isCanceled,
             onProgress: (progress) => {
               if (typeof onProgress === "function") {
                 onProgress({

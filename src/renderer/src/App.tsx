@@ -38,6 +38,7 @@ import {
   Settings2,
   Tag,
   Trash2,
+  Square,
   Eye,
   X
 } from "lucide-react";
@@ -144,6 +145,12 @@ function formatSize(bytes: number) {
 function notifyError(title: string, error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "未知错误");
   notifications.show({ title, message, color: "red" });
+}
+
+function normalizeOcrError(message: string) {
+  if (message.includes("Error attempting to read image")) return "图片无法识别，可能是文件损坏、格式异常，或并非有效图片。";
+  if (message.includes("OCR 已取消")) return "OCR 已取消";
+  return message;
 }
 
 export default function App() {
@@ -990,7 +997,7 @@ export default function App() {
           contentIndexStatus: result.status,
           contentIndexSource: result.source || "ocr",
           contentIndexedAt: result.indexedAt,
-          contentIndexError: result.error || undefined
+          contentIndexError: result.error ? normalizeOcrError(result.error) : undefined
         };
       });
       const indexedCount = results.filter((result) => result.status === "indexed").length;
@@ -1009,6 +1016,15 @@ export default function App() {
       notifyError("建立 OCR 索引失败", error);
     } finally {
       setOcrRunning(false);
+    }
+  }
+
+  async function cancelOcr() {
+    try {
+      await window.fileKb.cancelOcr();
+      notifications.show({ title: "已请求取消", message: "当前 OCR 会在本轮任务结束后停止。", color: "orange" });
+    } catch (error) {
+      notifyError("取消 OCR 失败", error);
     }
   }
 
@@ -1322,9 +1338,15 @@ export default function App() {
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
           <Button variant="light" leftSection={<Search size={16} />} onClick={indexTextContent}>建立内容索引</Button>
-          <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()} loading={ocrRunning} disabled={ocrRunning}>
-            {ocrRunning ? "OCR 处理中" : "建立 OCR 索引"}
-          </Button>
+          {ocrRunning ? (
+            <Button variant="light" color="red" leftSection={<Square size={16} />} onClick={cancelOcr}>
+              取消 OCR
+            </Button>
+          ) : (
+            <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()}>
+              建立 OCR 索引
+            </Button>
+          )}
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
         </Group>
@@ -1549,9 +1571,15 @@ export default function App() {
                 <Group gap="sm">
                   <Button leftSection={<Save size={16} />} onClick={saveDetail}>保存修改</Button>
                   {ocrImageExts.has(String(selectedFile.ext || "").toLowerCase()) && (
-                    <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent([selectedFile])} loading={ocrRunning} disabled={ocrRunning}>
-                      {ocrRunning ? "OCR 处理中" : "建立 OCR 索引"}
-                    </Button>
+                    ocrRunning ? (
+                      <Button variant="light" color="red" leftSection={<Square size={16} />} onClick={cancelOcr}>
+                        取消 OCR
+                      </Button>
+                    ) : (
+                      <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent([selectedFile])}>
+                        建立 OCR 索引
+                      </Button>
+                    )
                   )}
                   {(!selectedFile.importMode || selectedFile.importMode === "index") && (
                     <Button variant="light" color="orange" leftSection={<FolderOpen size={16} />} onClick={() => setMoveIndexedModalOpen(true)}>
