@@ -4,7 +4,7 @@ const initSqlJs = require("sql.js/dist/sql-asm.js");
 const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
 const XLSX = require("xlsx");
-const pdfParse = require("pdf-parse");
+const { PDFParse } = require("pdf-parse");
 
 const defaultData = {
   categories: [],
@@ -110,8 +110,13 @@ async function extractContentText(file) {
   }
 
   if (ext === "pdf") {
-    const data = await pdfParse(fs.readFileSync(file.path));
-    return String(data.text || "").slice(0, TEXT_INDEX_LIMIT);
+    const parser = new PDFParse({ data: fs.readFileSync(file.path) });
+    try {
+      const data = await parser.getText();
+      return String(data.text || "").slice(0, TEXT_INDEX_LIMIT);
+    } finally {
+      await parser.destroy();
+    }
   }
 
   throw new Error("暂不支持该文件类型");
