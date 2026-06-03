@@ -84,6 +84,12 @@ type OcrProgressState = {
   progress?: number;
 };
 
+type LibrarySyncResult = {
+  nextCategories: CategoryRecord[];
+  newFiles: FileRecord[];
+  newCategoryCount: number;
+};
+
 const emptyStore: FileKbStoreData = {
   categories: [],
   files: [],
@@ -172,6 +178,7 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState<OcrProgressState | null>(null);
   const [contentIndexDetail, setContentIndexDetail] = useState<ContentIndexDetail | null>(null);
   const [contentIndexLoading, setContentIndexLoading] = useState(false);
+  const [libraryWatchStatus, setLibraryWatchStatus] = useState<LibraryWatchStatus | null>(null);
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
@@ -284,6 +291,12 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    return window.fileKb.onLibraryWatchStatus((payload) => {
+      setLibraryWatchStatus(payload);
+    });
+  }, []);
+
   const filteredFiles = useMemo(() => {
     const categoryIds = selectedCategoryId ? [selectedCategoryId, ...descendantsOf(selectedCategoryId)] : [];
     const query = search.toLowerCase();
@@ -353,6 +366,10 @@ export default function App() {
         files: synced.files
       });
     }
+    await window.fileKb.watchLibrary({
+      libraryDir: synced.settings.libraryDir || "",
+      enabled: Boolean(synced.settings.libraryDir)
+    });
     setData(synced);
     return synced;
   }
@@ -362,6 +379,7 @@ export default function App() {
       const libraryDir = await window.fileKb.chooseDirectory();
       if (!libraryDir) return;
       await persist({ ...data, settings: { ...data.settings, libraryDir } });
+      await window.fileKb.watchLibrary({ libraryDir, enabled: true });
       await refreshStorageStats(libraryDir);
       notifications.show({ title: "知识库目录已保存", message: libraryDir, color: "teal" });
     } catch (error) {
@@ -411,6 +429,10 @@ export default function App() {
         const cleaned = withSyncedTags(removeSeededDataIfUnused(loaded));
         setData(cleaned);
         await window.fileKb.save(cleaned);
+        await window.fileKb.watchLibrary({
+          libraryDir: cleaned.settings.libraryDir || "",
+          enabled: Boolean(cleaned.settings.libraryDir)
+        });
       } catch (error) {
         notifyError("加载本地数据失败", error);
       }
@@ -418,6 +440,31 @@ export default function App() {
 
     load();
   }, []);
+
+  useEffect(() => {
+    return window.fileKb.onLibraryWatchChange(async (payload) => {
+      if (!data.settings.libraryDir || payload.libraryDir !== data.settings.libraryDir) return;
+
+      try {
+        const scanResult = await window.fileKb.scanLibrary({
+          libraryDir: data.settings.libraryDir,
+          categories: data.categories
+        });
+        const { nextCategories, newFiles, newCategoryCount } = buildLibrarySyncResult(data, scanResult);
+        if (!newFiles.length && !newCategoryCount) return;
+
+        await persist({ ...data, categories: nextCategories, files: [...newFiles, ...data.files] });
+        if (newFiles[0]) setSelectedFileId(newFiles[0].id);
+        notifications.show({
+          title: "知识库已自动更新",
+          message: `新增 ${newCategoryCount} 个分类，${newFiles.length} 个文件索引`,
+          color: "teal"
+        });
+      } catch (error) {
+        notifyError("自动扫描知识库失败", error);
+      }
+    });
+  }, [data]);
 
   useEffect(() => {
     if (!selectedFile) {
@@ -741,11 +788,64 @@ export default function App() {
     }
   }
 
-  async function scanLibraryFiles() {
+  function buildLibrarySyncResult(currentData: FileKbStoreData, scanResult: Awaited<ReturnType<typeof window.fileKb.scanLibrary>>): LibrarySyncResult {
+    const nextCategories = [...currentData.categories];
+    const pathToCategoryId = categoryPathMap(nextCategories);
+
+    scanResult.folders
+      .sort((a, b) => a.parts.length - b.parts.length)
+      .forEach((folder) => {
+        const key = categoryPathKey(folder.parts);
+        if (pathToCategoryId.has(key)) return;
+
+        const parentParts = folder.parts.slice(0, -1);
+        const parentId = parentParts.length ? pathToCategoryId.get(categoryPathKey(parentParts)) || null : null;
+        const category = {
+          id: makeId("cat"),
+          name: folder.parts[folder.parts.length - 1],
+          parentId,
+          sortOrder: Date.now() + nextCategories.length,
+          note: "从知识库目录扫描创建"
+        };
+        nextCategories.push(category);
+        pathToCategoryId.set(key, category.id);
+      });
+
+    const existingPaths = new Set(currentData.files.map((file) => file.path.toLowerCase()));
+    const newFiles = scanResult.files
+      .filter((file) => !existingPaths.has(file.path.toLowerCase()))
+      .map((file) => ({
+        id: makeId("file"),
+        name: file.name,
+        path: file.path,
+        ext: file.ext,
+        size: file.size,
+        modifiedAt: file.modifiedAt,
+        importedAt: new Date().toISOString(),
+        categoryId: file.categoryId || pathToCategoryId.get(categoryPathKey(file.categoryParts)) || "",
+        tags: [],
+        note: "从知识库目录扫描入库",
+        originalPath: file.originalPath || file.path,
+        storedPath: file.storedPath || file.path,
+        importMode: file.importMode || "copy",
+        missing: false,
+        lastCheckedAt: new Date().toISOString()
+      }));
+
+    return {
+      nextCategories,
+      newFiles,
+      newCategoryCount: nextCategories.length - currentData.categories.length
+    };
+  }
+
+  async function scanLibraryFiles(showNotification = true) {
     try {
       if (!data.settings.libraryDir) {
-        notifications.show({ title: "请先选择知识库目录", message: "扫描前需要先设置知识库目录。", color: "orange" });
-        setSettingsModalOpen(true);
+        if (showNotification) {
+          notifications.show({ title: "请先选择知识库目录", message: "扫描前需要先设置知识库目录。", color: "orange" });
+          setSettingsModalOpen(true);
+        }
         return;
       }
 
@@ -753,62 +853,24 @@ export default function App() {
         libraryDir: data.settings.libraryDir,
         categories: data.categories
       });
-      const nextCategories = [...data.categories];
-      const pathToCategoryId = categoryPathMap(nextCategories);
+      const { nextCategories, newFiles, newCategoryCount } = buildLibrarySyncResult(data, scanResult);
 
-      scanResult.folders
-        .sort((a, b) => a.parts.length - b.parts.length)
-        .forEach((folder) => {
-          const key = categoryPathKey(folder.parts);
-          if (pathToCategoryId.has(key)) return;
-
-          const parentParts = folder.parts.slice(0, -1);
-          const parentId = parentParts.length ? pathToCategoryId.get(categoryPathKey(parentParts)) || null : null;
-          const category = {
-            id: makeId("cat"),
-            name: folder.parts[folder.parts.length - 1],
-            parentId,
-            sortOrder: Date.now() + nextCategories.length,
-            note: "从知识库目录扫描创建"
-          };
-          nextCategories.push(category);
-          pathToCategoryId.set(key, category.id);
-        });
-
-      const existingPaths = new Set(data.files.map((file) => file.path.toLowerCase()));
-      const newFiles = scanResult.files
-        .filter((file) => !existingPaths.has(file.path.toLowerCase()))
-        .map((file) => ({
-          id: makeId("file"),
-          name: file.name,
-          path: file.path,
-          ext: file.ext,
-          size: file.size,
-          modifiedAt: file.modifiedAt,
-          importedAt: new Date().toISOString(),
-          categoryId: file.categoryId || pathToCategoryId.get(categoryPathKey(file.categoryParts)) || "",
-          tags: [],
-          note: "从知识库目录扫描入库",
-          originalPath: file.originalPath || file.path,
-          storedPath: file.storedPath || file.path,
-          importMode: file.importMode || "copy",
-          missing: false,
-          lastCheckedAt: new Date().toISOString()
-        }));
-
-      const newCategoryCount = nextCategories.length - data.categories.length;
       if (!newFiles.length && !newCategoryCount) {
-        notifications.show({ title: "扫描完成", message: "没有发现新的未索引文件或文件夹。", color: "gray" });
+        if (showNotification) {
+          notifications.show({ title: "扫描完成", message: "没有发现新的未索引文件或文件夹。", color: "gray" });
+        }
         return;
       }
 
       await persist({ ...data, categories: nextCategories, files: [...newFiles, ...data.files] });
       if (newFiles[0]) setSelectedFileId(newFiles[0].id);
-      notifications.show({
-        title: "扫描完成",
-        message: `新增 ${newCategoryCount} 个分类，${newFiles.length} 个文件索引`,
-        color: "teal"
-      });
+      if (showNotification) {
+        notifications.show({
+          title: "扫描完成",
+          message: `新增 ${newCategoryCount} 个分类，${newFiles.length} 个文件索引`,
+          color: "teal"
+        });
+      }
     } catch (error) {
       notifyError("扫描知识库失败", error);
     }
@@ -1270,6 +1332,16 @@ export default function App() {
                 </Stack>
               </Paper>
             )}
+            {libraryWatchStatus?.active && (
+              <Paper p="sm" withBorder>
+                <Group justify="space-between" gap="sm">
+                  <Text size="sm" fw={700}>知识库监听中</Text>
+                  <Badge variant="light" color={libraryWatchStatus.pending ? "orange" : "teal"}>
+                    {libraryWatchStatus.pending ? "检测到变更" : "已启用"}
+                  </Badge>
+                </Group>
+              </Paper>
+            )}
             <ScrollArea className="fileScroll">
               <Stack gap="sm">
                 {!filteredFiles.length ? (
@@ -1485,6 +1557,9 @@ export default function App() {
             value={data.settings.libraryDir || "未设置"}
             readOnly
           />
+          <Text size="xs" c="dimmed">
+            目录监听：{libraryWatchStatus?.active ? (libraryWatchStatus.pending ? "检测到变化，等待自动扫描" : "已启用") : "未启用"}
+          </Text>
           <Select
             label="OCR 语言"
             data={[

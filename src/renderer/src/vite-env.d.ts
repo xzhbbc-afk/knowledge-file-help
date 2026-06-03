@@ -89,6 +89,19 @@ type StorageStats = {
   contentIndexSize: number;
 };
 
+type LibraryWatchStatus = {
+  active: boolean;
+  libraryDir: string;
+  pending?: boolean;
+  eventCount?: number;
+};
+
+type LibraryWatchChange = {
+  libraryDir: string;
+  eventCount: number;
+  triggeredAt: string;
+};
+
 type OcrProgressPayload = {
   fileId?: string;
   fileName?: string;
@@ -122,6 +135,7 @@ interface Window {
     restore: () => Promise<FileKbStoreData | null>;
     chooseFiles: () => Promise<ChosenFile[]>;
     chooseDirectory: () => Promise<string>;
+    watchLibrary: (payload: { libraryDir: string; enabled?: boolean }) => Promise<LibraryWatchStatus>;
     syncCategoryFolders: (payload: {
       libraryDir: string;
       categories: CategoryRecord[];
@@ -173,6 +187,8 @@ interface Window {
       indexedAt: string;
     }>>;
     onOcrProgress: (callback: (progress: OcrProgressPayload) => void) => () => void;
+    onLibraryWatchStatus: (callback: (payload: LibraryWatchStatus) => void) => () => void;
+    onLibraryWatchChange: (callback: (payload: LibraryWatchChange) => void) => () => void;
     searchContent: (query: string) => Promise<ContentSearchMatch[]>;
     contentTextByFileIds: (fileIds: string[]) => Promise<Record<string, string>>;
     getContentIndex: (fileId: string) => Promise<ContentIndexDetail>;

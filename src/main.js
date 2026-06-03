@@ -5,6 +5,10 @@ const { createStore } = require("./store");
 
 let mainWindow;
 let store;
+let libraryWatcher = null;
+let libraryWatcherDir = "";
+let libraryWatcherTimer = null;
+let libraryWatcherEvents = 0;
 
 function uniqueDestinationPath(directoryPath, fileName) {
   const parsed = path.parse(fileName);
@@ -212,6 +216,61 @@ function directorySize(directoryPath) {
   return total;
 }
 
+function sendToRenderer(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function stopLibraryWatcher() {
+  if (libraryWatcherTimer) {
+    clearTimeout(libraryWatcherTimer);
+    libraryWatcherTimer = null;
+  }
+  if (libraryWatcher) {
+    libraryWatcher.close();
+    libraryWatcher = null;
+  }
+  libraryWatcherDir = "";
+  libraryWatcherEvents = 0;
+  sendToRenderer("library:watch-status", { active: false, libraryDir: "" });
+}
+
+function startLibraryWatcher(libraryDir) {
+  stopLibraryWatcher();
+  if (!libraryDir || !fs.existsSync(libraryDir)) return;
+
+  libraryWatcherDir = libraryDir;
+  libraryWatcher = fs.watch(libraryDir, { recursive: true }, () => {
+    libraryWatcherEvents += 1;
+    sendToRenderer("library:watch-status", {
+      active: true,
+      libraryDir,
+      pending: true,
+      eventCount: libraryWatcherEvents
+    });
+
+    if (libraryWatcherTimer) clearTimeout(libraryWatcherTimer);
+    libraryWatcherTimer = setTimeout(() => {
+      const eventCount = libraryWatcherEvents;
+      libraryWatcherEvents = 0;
+      libraryWatcherTimer = null;
+      sendToRenderer("library:watch-change", {
+        libraryDir,
+        eventCount,
+        triggeredAt: new Date().toISOString()
+      });
+    }, 2000);
+  });
+
+  sendToRenderer("library:watch-status", {
+    active: true,
+    libraryDir,
+    pending: false,
+    eventCount: 0
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
@@ -261,11 +320,25 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+  stopLibraryWatcher();
 });
 
 ipcMain.handle("store:load", () => store.load());
 
 ipcMain.handle("store:save", (_event, data) => store.save(data));
+
+ipcMain.handle("library:watch", async (_event, payload) => {
+  const libraryDir = payload?.libraryDir || "";
+  const enabled = payload?.enabled !== false;
+
+  if (!enabled || !libraryDir) {
+    stopLibraryWatcher();
+    return { active: false, libraryDir: "" };
+  }
+
+  startLibraryWatcher(libraryDir);
+  return { active: true, libraryDir };
+});
 
 ipcMain.handle("store:stats", async (_event, payload) => {
   const libraryDir = payload?.libraryDir || "";
