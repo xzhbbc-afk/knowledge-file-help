@@ -245,10 +245,11 @@ export default function App() {
 
     return data.files.filter((file) => {
       const matchesCategory = !categoryIds.length || categoryIds.includes(file.categoryId);
+      if (!matchesCategory) return false;
       const matchesTag = !tagFilter || file.tags.includes(tagFilter);
       const haystack = [file.name, file.ext, file.note, categoryPath(file.categoryId), ...file.tags].join(" ").toLowerCase();
       const matchesSearch = !query || haystack.includes(query) || contentMatches.has(file.id);
-      return matchesCategory && matchesTag && matchesSearch;
+      return matchesTag && matchesSearch;
     });
   }, [data.files, selectedCategoryId, search, tagFilter, data.categories, contentMatchedIds]);
 
@@ -1084,7 +1085,7 @@ export default function App() {
         <TextInput
           className="searchInput"
           leftSection={<Search size={16} />}
-          placeholder="搜索文件名、标签、备注、分类"
+          placeholder={selectedCategoryId ? `在 ${categoryPath(selectedCategoryId)} 中搜索` : "搜索全部文件"}
           value={search}
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
@@ -1114,7 +1115,9 @@ export default function App() {
             <Group justify="space-between" align="flex-end">
               <div>
                 <Title order={3}>{selectedCategoryId ? categoryPath(selectedCategoryId) : "全部文件"}</Title>
-                <Text size="sm" c="dimmed">{filteredFiles.length} 个文件</Text>
+                <Text size="sm" c="dimmed">
+                  {filteredFiles.length} 个文件{search ? ` · 当前搜索范围：${selectedCategoryId ? "当前分类及子分类" : "全部文件"}` : ""}
+                </Text>
               </div>
               <Select
                 className="tagFilter"
