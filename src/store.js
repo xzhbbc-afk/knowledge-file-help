@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const initSqlJs = require("sql.js/dist/sql-asm.js");
+const mammoth = require("mammoth");
+const XLSX = require("xlsx");
 
 const defaultData = {
   categories: [],
@@ -14,7 +16,7 @@ const defaultData = {
 };
 
 const TEXT_INDEX_LIMIT = 100000;
-const SUPPORTED_TEXT_EXTS = new Set(["txt", "md", "csv"]);
+const SUPPORTED_TEXT_EXTS = new Set(["txt", "md", "csv", "docx", "xlsx"]);
 
 let SQLPromise;
 
@@ -34,6 +36,33 @@ function normalizeData(data) {
       ...(data?.settings && typeof data.settings === "object" ? data.settings : {})
     }
   };
+}
+
+async function extractContentText(file) {
+  const ext = String(file.ext || "").toLowerCase();
+  if (!fs.existsSync(file.path)) throw new Error("文件不存在");
+
+  if (ext === "txt" || ext === "md" || ext === "csv") {
+    return fs.readFileSync(file.path, "utf8").slice(0, TEXT_INDEX_LIMIT);
+  }
+
+  if (ext === "docx") {
+    const result = await mammoth.extractRawText({ path: file.path });
+    return String(result.value || "").slice(0, TEXT_INDEX_LIMIT);
+  }
+
+  if (ext === "xlsx") {
+    const workbook = XLSX.readFile(file.path, { cellDates: true });
+    const chunks = [];
+    workbook.SheetNames.forEach((sheetName) => {
+      const sheet = workbook.Sheets[sheetName];
+      chunks.push(`工作表：${sheetName}`);
+      chunks.push(XLSX.utils.sheet_to_csv(sheet));
+    });
+    return chunks.join("\n").slice(0, TEXT_INDEX_LIMIT);
+  }
+
+  throw new Error("暂不支持该文件类型");
 }
 
 async function createStore(userDataPath) {
@@ -322,14 +351,14 @@ async function createStore(userDataPath) {
     return save(next);
   }
 
-  function indexTextFiles(files) {
+  async function indexTextFiles(files) {
     const db = openDatabase();
     execSchema(db);
     const results = [];
 
     db.run("BEGIN TRANSACTION");
     try {
-      files.forEach((file) => {
+      for (const file of files) {
         const ext = String(file.ext || "").toLowerCase();
         if (!SUPPORTED_TEXT_EXTS.has(ext)) {
           results.push({
@@ -338,7 +367,7 @@ async function createStore(userDataPath) {
             error: "暂不支持该文件类型",
             indexedAt: new Date().toISOString()
           });
-          return;
+          continue;
         }
 
         try {
@@ -346,7 +375,7 @@ async function createStore(userDataPath) {
             throw new Error("文件不存在");
           }
 
-          const content = fs.readFileSync(file.path, "utf8").slice(0, TEXT_INDEX_LIMIT);
+          const content = await extractContentText(file);
           const indexedAt = new Date().toISOString();
           db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
           db.run("INSERT INTO content_index (file_id, status, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?)", [
@@ -371,7 +400,7 @@ async function createStore(userDataPath) {
           ]);
           results.push({ id: file.id, status: "failed", error: error.message || String(error), indexedAt });
         }
-      });
+      }
       db.run("COMMIT");
     } catch (error) {
       db.run("ROLLBACK");
@@ -398,7 +427,15 @@ async function createStore(userDataPath) {
       .map((row) => row.fileId);
   }
 
-  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, searchContent };
+  function contentIndexSize() {
+    const db = openDatabase();
+    execSchema(db);
+    const rows = queryAll(db, "SELECT COALESCE(SUM(length), 0) AS total FROM content_index WHERE status = 'indexed'");
+    db.close();
+    return Number(rows[0]?.total || 0);
+  }
+
+  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, searchContent, contentIndexSize };
 }
 
 module.exports = { createStore };

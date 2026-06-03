@@ -82,6 +82,7 @@ type StorageStats = {
   dataPath: string;
   dataSize: number;
   librarySize: number;
+  contentIndexSize: number;
 };
 
 interface Window {

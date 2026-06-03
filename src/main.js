@@ -264,10 +264,12 @@ ipcMain.handle("store:save", (_event, data) => store.save(data));
 ipcMain.handle("store:stats", async (_event, payload) => {
   const libraryDir = payload?.libraryDir || "";
   const dataSize = fs.existsSync(store.dataPath) ? fs.statSync(store.dataPath).size : 0;
+  const contentIndexSize = store.contentIndexSize ? store.contentIndexSize() : 0;
   return {
     dataPath: store.dataPath,
     dataSize,
-    librarySize: directorySize(libraryDir)
+    librarySize: directorySize(libraryDir),
+    contentIndexSize
   };
 });
 
@@ -451,7 +453,7 @@ ipcMain.handle("library:scan", async (_event, payload) => {
 });
 
 ipcMain.handle("content:index-text-files", async (_event, files) => {
-  return store.indexTextFiles(Array.isArray(files) ? files : []);
+  return await store.indexTextFiles(Array.isArray(files) ? files : []);
 });
 
 ipcMain.handle("content:search", async (_event, query) => {

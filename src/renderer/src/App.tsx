@@ -763,9 +763,9 @@ export default function App() {
 
   async function indexTextContent() {
     try {
-      const candidates = data.files.filter((file) => ["txt", "md", "csv"].includes(String(file.ext || "").toLowerCase()));
+      const candidates = data.files.filter((file) => ["txt", "md", "csv", "docx", "xlsx"].includes(String(file.ext || "").toLowerCase()));
       if (!candidates.length) {
-        notifications.show({ title: "没有可索引文件", message: "当前仅支持 txt、md、csv。", color: "gray" });
+        notifications.show({ title: "没有可索引文件", message: "当前支持 txt、md、csv、docx、xlsx。", color: "gray" });
         return;
       }
 
@@ -1300,6 +1300,10 @@ export default function App() {
               <Group justify="space-between">
                 <Text size="sm" c="dimmed">索引数据占用</Text>
                 <Text size="sm" fw={800}>{formatSize(storageStats?.dataSize || 0)}</Text>
+              </Group>
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">内容索引文本量</Text>
+                <Text size="sm" fw={800}>{formatSize(storageStats?.contentIndexSize || 0)}</Text>
               </Group>
               <Group justify="space-between">
                 <Text size="sm" c="dimmed">知识库文件占用</Text>
