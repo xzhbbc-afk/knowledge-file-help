@@ -468,6 +468,10 @@ ipcMain.handle("content:search", async (_event, query) => {
   return store.searchContent(query);
 });
 
+ipcMain.handle("content:get-index", async (_event, fileId) => {
+  return store.getContentIndex(fileId);
+});
+
 ipcMain.handle("files:open", async (_event, filePath) => {
   if (!fs.existsSync(filePath)) {
     return { ok: false, message: "文件不存在，可能已被移动或删除。" };

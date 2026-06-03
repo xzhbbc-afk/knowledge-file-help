@@ -669,6 +669,36 @@ async function createStore(userDataPath) {
       .map((row) => row.fileId);
   }
 
+  function getContentIndex(fileId) {
+    const db = openDatabase();
+    execSchema(db);
+    const rows = queryAll(
+      db,
+      "SELECT status, source, indexed_at AS indexedAt, error, length, content FROM content_index WHERE file_id = ?",
+      [fileId]
+    );
+    db.close();
+    const row = rows[0];
+    if (!row) {
+      return {
+        status: "none",
+        source: "",
+        indexedAt: "",
+        error: "",
+        length: 0,
+        content: ""
+      };
+    }
+    return {
+      status: row.status || "none",
+      source: row.source || "",
+      indexedAt: row.indexedAt || "",
+      error: row.error || "",
+      length: Number(row.length || 0),
+      content: row.content || ""
+    };
+  }
+
   function contentIndexSize() {
     const db = openDatabase();
     execSchema(db);
@@ -677,7 +707,7 @@ async function createStore(userDataPath) {
     return Number(rows[0]?.total || 0);
   }
 
-  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, indexOcrFiles, searchContent, contentIndexSize };
+  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, indexOcrFiles, searchContent, getContentIndex, contentIndexSize };
 }
 
 module.exports = { createStore };

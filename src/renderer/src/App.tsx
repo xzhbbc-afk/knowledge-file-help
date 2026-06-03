@@ -38,6 +38,7 @@ import {
   Settings2,
   Tag,
   Trash2,
+  Eye,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -168,6 +169,8 @@ export default function App() {
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<OcrProgressState | null>(null);
+  const [contentIndexDetail, setContentIndexDetail] = useState<ContentIndexDetail | null>(null);
+  const [contentIndexLoading, setContentIndexLoading] = useState(false);
 
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
@@ -422,6 +425,7 @@ export default function App() {
     setDetailCategoryId(selectedFile.categoryId || "");
     setDetailTags(selectedFile.tags || []);
     setDetailNote(selectedFile.note || "");
+    setContentIndexDetail(null);
     setIsDirty(false);
   }, [selectedFileId, selectedFile]);
 
@@ -837,6 +841,19 @@ export default function App() {
     }
   }
 
+  async function loadSelectedContentIndex() {
+    if (!selectedFile) return;
+    try {
+      setContentIndexLoading(true);
+      const detail = await window.fileKb.getContentIndex(selectedFile.id);
+      setContentIndexDetail(detail);
+    } catch (error) {
+      notifyError("读取索引内容失败", error);
+    } finally {
+      setContentIndexLoading(false);
+    }
+  }
+
   async function indexOcrContent(targetFiles?: FileRecord[]) {
     if (ocrRunning) return;
     try {
@@ -865,6 +882,10 @@ export default function App() {
       const indexedCount = results.filter((result) => result.status === "indexed").length;
       const failedCount = results.filter((result) => result.status === "failed").length;
       await persist({ ...data, files: nextFiles });
+      if (selectedFile && resultById.has(selectedFile.id)) {
+        const detail = await window.fileKb.getContentIndex(selectedFile.id);
+        setContentIndexDetail(detail);
+      }
       notifications.show({
         title: "OCR 索引完成",
         message: `成功 ${indexedCount} 个，失败 ${failedCount} 个`,
@@ -1309,6 +1330,45 @@ export default function App() {
                     {selectedFile.contentIndexError}
                   </Alert>
                 )}
+                <Paper p="sm" withBorder>
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="center">
+                      <div>
+                        <Text size="sm" fw={800}>索引内容</Text>
+                        <Text size="xs" c="dimmed">
+                          {selectedFile.contentIndexSource === "ocr" ? "OCR 识别文本" : "全文索引文本"}
+                        </Text>
+                      </div>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        leftSection={<Eye size={14} />}
+                        onClick={loadSelectedContentIndex}
+                        loading={contentIndexLoading}
+                        disabled={selectedFile.contentIndexStatus !== "indexed"}
+                      >
+                        查看
+                      </Button>
+                    </Group>
+                    {contentIndexDetail ? (
+                      contentIndexDetail.content ? (
+                        <Textarea
+                          className="indexContentText"
+                          value={contentIndexDetail.content}
+                          minRows={8}
+                          maxRows={14}
+                          readOnly
+                        />
+                      ) : (
+                        <Text size="sm" c="dimmed">没有提取到文本内容。</Text>
+                      )
+                    ) : (
+                      <Text size="sm" c="dimmed">
+                        {selectedFile.contentIndexStatus === "indexed" ? "点击查看已建立的索引文本。" : "建立内容索引或 OCR 索引后可查看文本。"}
+                      </Text>
+                    )}
+                  </Stack>
+                </Paper>
                 <Select
                   label="分类"
                   data={categoryOptions}

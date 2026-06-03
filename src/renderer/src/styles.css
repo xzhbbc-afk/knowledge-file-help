@@ -228,6 +228,13 @@ body {
   overflow-wrap: anywhere;
 }
 
+.indexContentText textarea {
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 .importFileName {
   min-width: 0;
   flex: 1;

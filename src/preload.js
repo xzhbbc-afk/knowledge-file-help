@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("fileKb", {
     return () => ipcRenderer.removeListener("content:ocr-progress", listener);
   },
   searchContent: (query) => ipcRenderer.invoke("content:search", query),
+  getContentIndex: (fileId) => ipcRenderer.invoke("content:get-index", fileId),
   openFile: (filePath) => ipcRenderer.invoke("files:open", filePath),
   showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath)
 });

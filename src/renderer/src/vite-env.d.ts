@@ -96,6 +96,15 @@ type OcrProgressPayload = {
   progress?: number;
 };
 
+type ContentIndexDetail = {
+  status: ContentIndexStatus;
+  source: ContentIndexSource | "";
+  indexedAt: string;
+  error: string;
+  length: number;
+  content: string;
+};
+
 interface Window {
   fileKb: {
     load: () => Promise<FileKbStoreData>;
@@ -157,6 +166,7 @@ interface Window {
     }>>;
     onOcrProgress: (callback: (progress: OcrProgressPayload) => void) => () => void;
     searchContent: (query: string) => Promise<string[]>;
+    getContentIndex: (fileId: string) => Promise<ContentIndexDetail>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
   };
