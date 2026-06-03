@@ -260,7 +260,7 @@ function startLibraryWatcher(libraryDir) {
         eventCount,
         triggeredAt: new Date().toISOString()
       });
-    }, 2000);
+    }, 5000);
   });
 
   sendToRenderer("library:watch-status", {
