@@ -132,6 +132,7 @@ export default function App() {
   const [selectedFileId, setSelectedFileId] = useState("");
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [contentMatchedIds, setContentMatchedIds] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState("");
   const [detailCategoryId, setDetailCategoryId] = useState("");
   const [detailTags, setDetailTags] = useState<string[]>([]);
@@ -213,17 +214,43 @@ export default function App() {
     [data.files, selectedFileId]
   );
 
+  useEffect(() => {
+    let canceled = false;
+    const query = search.trim();
+
+    if (!query) {
+      setContentMatchedIds([]);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const ids = await window.fileKb.searchContent(query);
+        if (!canceled) setContentMatchedIds(ids);
+      } catch (_error) {
+        if (!canceled) setContentMatchedIds([]);
+      }
+    }, 220);
+
+    return () => {
+      canceled = true;
+      window.clearTimeout(timer);
+    };
+  }, [search]);
+
   const filteredFiles = useMemo(() => {
     const categoryIds = selectedCategoryId ? [selectedCategoryId, ...descendantsOf(selectedCategoryId)] : [];
     const query = search.toLowerCase();
+    const contentMatches = new Set(contentMatchedIds);
 
     return data.files.filter((file) => {
       const matchesCategory = !categoryIds.length || categoryIds.includes(file.categoryId);
       const matchesTag = !tagFilter || file.tags.includes(tagFilter);
       const haystack = [file.name, file.ext, file.note, categoryPath(file.categoryId), ...file.tags].join(" ").toLowerCase();
-      return matchesCategory && matchesTag && (!query || haystack.includes(query));
+      const matchesSearch = !query || haystack.includes(query) || contentMatches.has(file.id);
+      return matchesCategory && matchesTag && matchesSearch;
     });
-  }, [data.files, selectedCategoryId, search, tagFilter, data.categories]);
+  }, [data.files, selectedCategoryId, search, tagFilter, data.categories, contentMatchedIds]);
 
   function withSyncedTags(nextData: FileKbStoreData) {
     const normalized = normalizeStoreData(nextData);
@@ -733,6 +760,39 @@ export default function App() {
     }
   }
 
+  async function indexTextContent() {
+    try {
+      const candidates = data.files.filter((file) => ["txt", "md", "csv"].includes(String(file.ext || "").toLowerCase()));
+      if (!candidates.length) {
+        notifications.show({ title: "没有可索引文件", message: "当前仅支持 txt、md、csv。", color: "gray" });
+        return;
+      }
+
+      const results = await window.fileKb.indexTextFiles(candidates);
+      const resultById = new Map(results.map((result) => [result.id, result]));
+      const nextFiles = data.files.map((file) => {
+        const result = resultById.get(file.id);
+        if (!result) return file;
+        return {
+          ...file,
+          contentIndexStatus: result.status,
+          contentIndexedAt: result.indexedAt,
+          contentIndexError: result.error || undefined
+        };
+      });
+      const indexedCount = results.filter((result) => result.status === "indexed").length;
+      const failedCount = results.filter((result) => result.status === "failed").length;
+      await persist({ ...data, files: nextFiles });
+      notifications.show({
+        title: "内容索引完成",
+        message: `成功 ${indexedCount} 个，失败 ${failedCount} 个`,
+        color: failedCount ? "orange" : "teal"
+      });
+    } catch (error) {
+      notifyError("建立内容索引失败", error);
+    }
+  }
+
   function toggleFileSelection(fileId: string, checked: boolean) {
     setSelectedFileIds((current) => {
       if (checked) return current.includes(fileId) ? current : [...current, fileId];
@@ -1042,6 +1102,7 @@ export default function App() {
           <Button leftSection={<FilePlus size={16} />} onClick={importFiles}>导入文件</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
+          <Button variant="light" leftSection={<Search size={16} />} onClick={indexTextContent}>建立内容索引</Button>
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
           <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
         </Group>
@@ -1099,6 +1160,7 @@ export default function App() {
                         <Text size="sm" c="dimmed">{categoryPath(file.categoryId)} · {formatSize(file.size)}</Text>
                         <Group gap={6}>
                           {file.missing && <Badge variant="light" color="red">文件丢失</Badge>}
+                          {file.contentIndexStatus === "indexed" && <Badge variant="light" color="blue">全文</Badge>}
                           {file.tags.map((tag) => <Badge key={tag} variant="light" color="orange">{tag}</Badge>)}
                         </Group>
                       </Stack>
@@ -1127,6 +1189,17 @@ export default function App() {
                 {selectedFile.missing && (
                   <Alert color="red" title="文件路径失效">
                     当前索引记录的文件路径不存在。你可以检查原文件是否被删除、移动，或从索引中移除该记录。
+                  </Alert>
+                )}
+                <Group gap="xs">
+                  <Badge color={selectedFile.contentIndexStatus === "indexed" ? "blue" : selectedFile.contentIndexStatus === "failed" ? "red" : "gray"}>
+                    内容索引：{selectedFile.contentIndexStatus === "indexed" ? "已建立" : selectedFile.contentIndexStatus === "failed" ? "失败" : "未建立"}
+                  </Badge>
+                  {selectedFile.contentIndexedAt && <Text size="xs" c="dimmed">{new Date(selectedFile.contentIndexedAt).toLocaleString()}</Text>}
+                </Group>
+                {selectedFile.contentIndexError && (
+                  <Alert color="orange" title="内容索引失败">
+                    {selectedFile.contentIndexError}
                   </Alert>
                 )}
                 <Select

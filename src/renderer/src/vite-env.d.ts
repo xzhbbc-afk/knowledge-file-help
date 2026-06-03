@@ -38,6 +38,9 @@ type FileRecord = {
   targetDirParts?: string[];
   missing?: boolean;
   lastCheckedAt?: string;
+  contentIndexStatus?: ContentIndexStatus;
+  contentIndexedAt?: string;
+  contentIndexError?: string;
 };
 
 type RuleRecord = {
@@ -68,6 +71,7 @@ type ImportedFile = ChosenFile & {
 
 type ImportMode = "index" | "copy" | "move";
 type ArchiveRuleScope = "root" | "all";
+type ContentIndexStatus = "none" | "indexed" | "failed" | "skipped";
 
 type ShellResult = {
   ok: boolean;
@@ -125,6 +129,13 @@ interface Window {
         categoryParts: string[];
       }>;
     }>;
+    indexTextFiles: (files: FileRecord[]) => Promise<Array<{
+      id: string;
+      status: ContentIndexStatus;
+      error: string;
+      indexedAt: string;
+    }>>;
+    searchContent: (query: string) => Promise<string[]>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
   };

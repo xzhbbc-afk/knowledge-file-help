@@ -450,6 +450,14 @@ ipcMain.handle("library:scan", async (_event, payload) => {
   };
 });
 
+ipcMain.handle("content:index-text-files", async (_event, files) => {
+  return store.indexTextFiles(Array.isArray(files) ? files : []);
+});
+
+ipcMain.handle("content:search", async (_event, query) => {
+  return store.searchContent(query);
+});
+
 ipcMain.handle("files:open", async (_event, filePath) => {
   if (!fs.existsSync(filePath)) {
     return { ok: false, message: "文件不存在，可能已被移动或删除。" };

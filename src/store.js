@@ -13,6 +13,9 @@ const defaultData = {
   }
 };
 
+const TEXT_INDEX_LIMIT = 100000;
+const SUPPORTED_TEXT_EXTS = new Set(["txt", "md", "csv"]);
+
 let SQLPromise;
 
 function sql() {
@@ -104,7 +107,19 @@ async function createStore(userDataPath) {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS content_index (
+        file_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'none',
+        indexed_at TEXT,
+        error TEXT,
+        length INTEGER NOT NULL DEFAULT 0,
+        content TEXT NOT NULL DEFAULT ''
+      );
     `);
+    const contentColumns = queryAll(db, "PRAGMA table_info(content_index)").map((column) => String(column.name));
+    if (!contentColumns.includes("content")) {
+      db.run("ALTER TABLE content_index ADD COLUMN content TEXT NOT NULL DEFAULT ''");
+    }
   }
 
   function queryAll(db, sqlText, params = []) {
@@ -148,6 +163,12 @@ async function createStore(userDataPath) {
       importMode: file.importMode || undefined,
       missing: Boolean(file.missing),
       lastCheckedAt: file.lastCheckedAt || undefined,
+      contentIndexStatus:
+        queryValues(db, "SELECT status FROM content_index WHERE file_id = ?", [file.id])[0] || "none",
+      contentIndexedAt:
+        queryValues(db, "SELECT indexed_at FROM content_index WHERE file_id = ?", [file.id])[0] || undefined,
+      contentIndexError:
+        queryValues(db, "SELECT error FROM content_index WHERE file_id = ?", [file.id])[0] || undefined,
       tags: queryValues(db, "SELECT tag_name FROM file_tags WHERE file_id = ? ORDER BY tag_name", [file.id])
     }));
 
@@ -228,6 +249,11 @@ async function createStore(userDataPath) {
         });
       });
 
+      const fileIds = new Set(normalized.files.map((file) => file.id));
+      queryValues(db, "SELECT file_id FROM content_index").forEach((fileId) => {
+        if (!fileIds.has(fileId)) db.run("DELETE FROM content_index WHERE file_id = ?", [fileId]);
+      });
+
       normalized.rules.forEach((rule) => {
         db.run("INSERT INTO rules (id, name, category_id, enabled) VALUES (?, ?, ?, ?)", [
           rule.id,
@@ -296,7 +322,83 @@ async function createStore(userDataPath) {
     return save(next);
   }
 
-  return { dataPath, legacyDataPath, load, save, update };
+  function indexTextFiles(files) {
+    const db = openDatabase();
+    execSchema(db);
+    const results = [];
+
+    db.run("BEGIN TRANSACTION");
+    try {
+      files.forEach((file) => {
+        const ext = String(file.ext || "").toLowerCase();
+        if (!SUPPORTED_TEXT_EXTS.has(ext)) {
+          results.push({
+            id: file.id,
+            status: "skipped",
+            error: "暂不支持该文件类型",
+            indexedAt: new Date().toISOString()
+          });
+          return;
+        }
+
+        try {
+          if (!file.path || !fs.existsSync(file.path)) {
+            throw new Error("文件不存在");
+          }
+
+          const content = fs.readFileSync(file.path, "utf8").slice(0, TEXT_INDEX_LIMIT);
+          const indexedAt = new Date().toISOString();
+          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
+          db.run("INSERT INTO content_index (file_id, status, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?)", [
+            file.id,
+            "indexed",
+            indexedAt,
+            null,
+            content.length,
+            content
+          ]);
+          results.push({ id: file.id, status: "indexed", error: "", indexedAt });
+        } catch (error) {
+          const indexedAt = new Date().toISOString();
+          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
+          db.run("INSERT INTO content_index (file_id, status, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?)", [
+            file.id,
+            "failed",
+            indexedAt,
+            error.message || String(error),
+            0,
+            ""
+          ]);
+          results.push({ id: file.id, status: "failed", error: error.message || String(error), indexedAt });
+        }
+      });
+      db.run("COMMIT");
+    } catch (error) {
+      db.run("ROLLBACK");
+      db.close();
+      throw error;
+    }
+
+    persistDatabase(db);
+    db.close();
+    return results;
+  }
+
+  function searchContent(query) {
+    const trimmed = String(query || "").trim();
+    if (!trimmed) return [];
+    const db = openDatabase();
+    execSchema(db);
+    const lowered = trimmed.toLowerCase();
+    const rows = queryAll(db, "SELECT file_id AS fileId, content FROM content_index WHERE status = 'indexed'");
+    db.close();
+    return rows
+      .filter((row) => String(row.content || "").toLowerCase().includes(lowered))
+      .slice(0, 500)
+      .map((row) => row.fileId);
+  }
+
+  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, searchContent };
 }
 
 module.exports = { createStore };
