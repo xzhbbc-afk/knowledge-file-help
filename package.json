@@ -77,7 +77,8 @@
         "zip"
       ],
       "category": "public.app-category.productivity",
-      "icon": "assets/local-knowledge-logo.png"
+      "icon": "assets/local-knowledge-logo.png",
+      "artifactName": "knowledge-file-help-${version}-mac-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
