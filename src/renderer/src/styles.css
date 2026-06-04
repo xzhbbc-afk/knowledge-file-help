@@ -123,6 +123,14 @@ body {
   max-width: 760px;
 }
 
+.topActions {
+  flex: 0 0 auto;
+}
+
+.topActions .mantine-Button-root {
+  white-space: nowrap;
+}
+
 .mainShell {
   height: 100vh;
   background: #f6f8fb;

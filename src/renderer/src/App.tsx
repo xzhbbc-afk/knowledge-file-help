@@ -7,6 +7,7 @@ import {
   Checkbox,
   Divider,
   Group,
+  Menu,
   Modal,
   Paper,
   Progress,
@@ -41,7 +42,8 @@ import {
   Trash2,
   Square,
   Eye,
-  X
+  X,
+  Ellipsis
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -1610,10 +1612,7 @@ export default function App() {
           value={search}
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
-        <Group gap="sm" wrap="nowrap">
-          <Button variant="light" leftSection={<CircleHelp size={16} />} onClick={() => setIntroModalOpen(true)}>
-            功能介绍
-          </Button>
+        <Group gap="xs" wrap="nowrap" className="topActions">
           <Button
             variant="light"
             leftSection={<HardDrive size={16} />}
@@ -1626,29 +1625,58 @@ export default function App() {
           </Button>
           <Button leftSection={<FilePlus size={16} />} onClick={importFiles}>导入文件</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
-          <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
-          <Button variant="light" leftSection={<Search size={16} />} onClick={indexTextContent}>建立内容索引</Button>
-          {failedTextIndexCount > 0 && (
-            <Button variant="light" color="orange" leftSection={<RefreshCw size={16} />} onClick={() => retryFailedTextIndexes()}>
-              重试全文失败
-            </Button>
-          )}
-          {ocrRunning ? (
-            <Button variant="light" color="red" leftSection={<Square size={16} />} onClick={cancelOcr}>
-              取消 OCR
-            </Button>
-          ) : (
-            <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()}>
-              建立 OCR 索引
-            </Button>
-          )}
-          {!ocrRunning && failedOcrCount > 0 && (
-            <Button variant="light" color="orange" leftSection={<RefreshCw size={16} />} onClick={() => retryFailedOcr()}>
-              重试 OCR 失败
-            </Button>
-          )}
-          <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
-          <Button variant="light" leftSection={<Settings2 size={16} />} onClick={openRulesModal}>归档规则</Button>
+          <Menu shadow="md" width={220} position="bottom-end">
+            <Menu.Target>
+              <Button variant="light" leftSection={<Search size={16} />}>
+                索引工具
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>
+                检查文件
+              </Menu.Item>
+              <Menu.Item leftSection={<Search size={16} />} onClick={indexTextContent}>
+                建立内容索引
+              </Menu.Item>
+              {failedTextIndexCount > 0 && (
+                <Menu.Item color="orange" leftSection={<RefreshCw size={16} />} onClick={() => retryFailedTextIndexes()}>
+                  重试全文失败
+                </Menu.Item>
+              )}
+              {ocrRunning ? (
+                <Menu.Item color="red" leftSection={<Square size={16} />} onClick={cancelOcr}>
+                  取消 OCR
+                </Menu.Item>
+              ) : (
+                <Menu.Item leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()}>
+                  建立 OCR 索引
+                </Menu.Item>
+              )}
+              {!ocrRunning && failedOcrCount > 0 && (
+                <Menu.Item color="orange" leftSection={<RefreshCw size={16} />} onClick={() => retryFailedOcr()}>
+                  重试 OCR 失败
+                </Menu.Item>
+              )}
+            </Menu.Dropdown>
+          </Menu>
+          <Menu shadow="md" width={220} position="bottom-end">
+            <Menu.Target>
+              <ActionIcon variant="light" size="lg" aria-label="更多功能">
+                <Ellipsis size={18} />
+              </ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item leftSection={<CircleHelp size={16} />} onClick={() => setIntroModalOpen(true)}>
+                功能介绍
+              </Menu.Item>
+              <Menu.Item leftSection={<Tag size={16} />} onClick={openTagModal}>
+                标签管理
+              </Menu.Item>
+              <Menu.Item leftSection={<Settings2 size={16} />} onClick={openRulesModal}>
+                归档规则
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
         </Group>
       </AppShell.Header>
 
