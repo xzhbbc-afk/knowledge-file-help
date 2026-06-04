@@ -9,7 +9,8 @@
     "build": "vite build --config vite.config.ts && node scripts/check.js",
     "pack": "npm run build && electron-builder --dir",
     "dist:win": "npm run build && electron-builder --win nsis",
-    "dist:mac": "npm run build && electron-builder --mac zip"
+    "dist:mac": "npm run build && electron-builder --mac zip",
+    "release:win": "npm run build && electron-builder --win nsis --publish always"
   },
   "devDependencies": {
     "@types/react": "^19.2.16",
@@ -81,7 +82,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "${productName}-${version}-setup-${arch}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "xzhbbc-afk",
+        "repo": "knowledge-file-help"
+      }
+    ]
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
