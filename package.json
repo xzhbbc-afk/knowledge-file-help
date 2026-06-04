@@ -10,7 +10,8 @@
     "pack": "npm run build && electron-builder --dir",
     "dist:win": "npm run build && electron-builder --win nsis",
     "dist:mac": "npm run build && electron-builder --mac zip",
-    "release:win": "npm run build && electron-builder --win nsis --publish always"
+    "release:win": "npm run build && electron-builder --win nsis --publish always",
+    "release:mac": "npm run build && electron-builder --mac zip --publish always"
   },
   "devDependencies": {
     "@types/react": "^19.2.16",
