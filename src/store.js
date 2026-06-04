@@ -1,12 +1,10 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { pathToFileURL } = require("url");
 const initSqlJs = require("sql.js/dist/sql-asm.js");
 const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
 const XLSX = require("xlsx");
-const { PDFParse } = require("pdf-parse");
 const { createCanvas } = require("@napi-rs/canvas");
 const { createWorker } = require("tesseract.js");
 
@@ -87,26 +85,18 @@ const OCR_NOISE_PATTERNS = [
 ];
 const OCR_PDF_PAGE_LIMIT = 20;
 const PDF_TEXT_LAYER_MIN_LENGTH = 80;
-const PDF_PARSE_WORKER_PATH = path.join(
-  __dirname,
-  "..",
-  "node_modules",
-  "pdf-parse",
-  "dist",
-  "pdf-parse",
-  "cjs",
-  "pdf.worker.mjs"
-);
-
-if (typeof PDFParse.setWorker === "function" && fs.existsSync(PDF_PARSE_WORKER_PATH)) {
-  PDFParse.setWorker(pathToFileURL(PDF_PARSE_WORKER_PATH).href);
-}
 
 let SQLPromise;
+let pdfjsPromise;
 
 function sql() {
   if (!SQLPromise) SQLPromise = initSqlJs();
   return SQLPromise;
+}
+
+async function pdfjs() {
+  if (!pdfjsPromise) pdfjsPromise = import("pdfjs-dist/legacy/build/pdf.mjs");
+  return pdfjsPromise;
 }
 
 function normalizeData(data) {
@@ -191,16 +181,50 @@ async function extractContentText(file) {
   }
 
   if (ext === "pdf") {
-    const parser = new PDFParse({ data: fs.readFileSync(file.path) });
-    try {
-      const data = await parser.getText();
-      return String(data.text || "").slice(0, TEXT_INDEX_LIMIT);
-    } finally {
-      await parser.destroy();
-    }
+    return extractPdfTextLayer(file);
   }
 
   throw new Error("暂不支持该文件类型");
+}
+
+async function extractPdfTextLayer(file, options = {}) {
+  const pdfjsLib = await pdfjs();
+  const data = new Uint8Array(fs.readFileSync(file.path));
+  const loadingTask = pdfjsLib.getDocument({
+    data,
+    disableWorker: true,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true
+  });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const pageCount = Math.min(pdf.numPages || 0, OCR_PDF_PAGE_LIMIT);
+    const chunks = [];
+
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      if (typeof options.isCanceled === "function" && options.isCanceled()) {
+        throw new Error("OCR 已取消");
+      }
+      const page = await pdf.getPage(pageIndex + 1);
+      const textContent = await page.getTextContent();
+      const pageText = (textContent.items || [])
+        .map((item) => ("str" in item ? String(item.str || "") : ""))
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (pageText) {
+        chunks.push(`[第 ${pageIndex + 1} 页]`);
+        chunks.push(pageText);
+      }
+      if (chunks.join("\n").length >= TEXT_INDEX_LIMIT) break;
+    }
+
+    return chunks.join("\n").slice(0, TEXT_INDEX_LIMIT);
+  } finally {
+    await loadingTask.destroy();
+  }
 }
 
 function withSuppressedOcrLogs(task) {
@@ -270,10 +294,11 @@ function hasUsablePdfTextLayer(content) {
 }
 
 async function renderPdfPagesForOcr(file, options = {}) {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfjsLib = await pdfjs();
   const data = new Uint8Array(fs.readFileSync(file.path));
-  const loadingTask = pdfjs.getDocument({
+  const loadingTask = pdfjsLib.getDocument({
     data,
+    disableWorker: true,
     useWorkerFetch: false,
     isEvalSupported: false,
     useSystemFonts: true
