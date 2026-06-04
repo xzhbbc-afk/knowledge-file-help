@@ -90,7 +90,10 @@ type OcrProgressState = {
 type LibrarySyncResult = {
   nextCategories: CategoryRecord[];
   newFiles: FileRecord[];
+  updatedFiles: FileRecord[];
   newCategoryCount: number;
+  renamedCategoryCount: number;
+  renamedFileCount: number;
 };
 
 const emptyStore: FileKbStoreData = {
@@ -115,6 +118,16 @@ function normalizeText(value: string) {
 
 function uniqueTags(tags: string[]) {
   return tags.map(normalizeText).filter(Boolean).filter((tag, index, list) => list.indexOf(tag) === index);
+}
+
+function isPathInsideLibrary(filePath: string, libraryDir: string) {
+  const normalizedFile = String(filePath || "").toLowerCase();
+  const normalizedLibrary = String(libraryDir || "").toLowerCase();
+  return Boolean(normalizedFile && normalizedLibrary) && normalizedFile.startsWith(normalizedLibrary);
+}
+
+function fileFingerprint(file: Pick<FileRecord, "size" | "modifiedAt" | "ext"> | Pick<ChosenFile, "size" | "modifiedAt" | "ext">) {
+  return [String(file.ext || "").toLowerCase(), Number(file.size || 0), String(file.modifiedAt || "")].join("\u0000");
 }
 
 function normalizeStoreData(nextData: FileKbStoreData): FileKbStoreData {
@@ -531,8 +544,9 @@ export default function App() {
           libraryDir: data.settings.libraryDir,
           categories: data.categories
         });
-        const { nextCategories, newFiles, newCategoryCount } = buildLibrarySyncResult(data, scanResult);
-        if (!newFiles.length && !newCategoryCount) return;
+        const { nextCategories, newFiles, updatedFiles, newCategoryCount, renamedCategoryCount, renamedFileCount } =
+          buildLibrarySyncResult(data, scanResult);
+        if (!newFiles.length && !newCategoryCount && !renamedCategoryCount && !renamedFileCount) return;
 
         let indexedNewFiles = newFiles;
         if (newFiles.length) {
@@ -555,11 +569,11 @@ export default function App() {
           }
         }
 
-        await persist({ ...data, categories: nextCategories, files: [...indexedNewFiles, ...data.files] });
+        await persist({ ...data, categories: nextCategories, files: [...indexedNewFiles, ...updatedFiles] });
         if (indexedNewFiles[0]) setSelectedFileId(indexedNewFiles[0].id);
         notifications.show({
           title: "知识库已自动更新",
-          message: `新增 ${newCategoryCount} 个分类，${indexedNewFiles.length} 个文件索引`,
+          message: `新增 ${newCategoryCount} 个分类，重命名分类 ${renamedCategoryCount} 个，新增文件 ${indexedNewFiles.length} 个，更新文件 ${renamedFileCount} 个`,
           color: "teal"
         });
       } catch (error) {
@@ -891,8 +905,60 @@ export default function App() {
   }
 
   function buildLibrarySyncResult(currentData: FileKbStoreData, scanResult: Awaited<ReturnType<typeof window.fileKb.scanLibrary>>): LibrarySyncResult {
-    const nextCategories = [...currentData.categories];
-    const pathToCategoryId = categoryPathMap(nextCategories);
+    const now = new Date().toISOString();
+    const nextCategories = currentData.categories.map((category) => ({ ...category }));
+    let pathToCategoryId = categoryPathMap(nextCategories);
+    const scannedFolderKeys = new Set(scanResult.folders.map((folder) => categoryPathKey(folder.parts)));
+    let renamedCategoryCount = 0;
+
+    const categoryPathKeyById = (categories: CategoryRecord[]) => {
+      const mapping = categoryPathMap(categories);
+      const result = new Map<string, string>();
+      mapping.forEach((categoryId, key) => result.set(categoryId, key));
+      return result;
+    };
+
+    const reconcileRenamedCategories = () => {
+      const keyById = categoryPathKeyById(nextCategories);
+      const missingCategories = nextCategories
+        .filter((category) => !scannedFolderKeys.has(keyById.get(category.id) || ""))
+        .sort((a, b) => {
+          const depthA = (keyById.get(a.id) || "").split("\u0000").filter(Boolean).length;
+          const depthB = (keyById.get(b.id) || "").split("\u0000").filter(Boolean).length;
+          return depthA - depthB;
+        });
+
+      let changed = false;
+      missingCategories.forEach((category) => {
+        const currentKey = keyById.get(category.id) || "";
+        const currentParts = currentKey ? currentKey.split("\u0000").filter(Boolean) : [];
+        const parentParts = currentParts.slice(0, -1);
+        const parentKey = categoryPathKey(parentParts);
+        const siblingMissing = missingCategories.filter((item) => {
+          const itemKey = keyById.get(item.id) || "";
+          const itemParts = itemKey ? itemKey.split("\u0000").filter(Boolean) : [];
+          return categoryPathKey(itemParts.slice(0, -1)) === parentKey;
+        });
+        const siblingNewFolders = scanResult.folders.filter((folder) => {
+          if (pathToCategoryId.has(categoryPathKey(folder.parts))) return false;
+          return categoryPathKey(folder.parts.slice(0, -1)) === parentKey;
+        });
+
+        if (siblingMissing.length !== 1 || siblingNewFolders.length !== 1) return;
+        category.name = siblingNewFolders[0].parts[siblingNewFolders[0].parts.length - 1] || category.name;
+        changed = true;
+        renamedCategoryCount += 1;
+        pathToCategoryId = categoryPathMap(nextCategories);
+      });
+
+      return changed;
+    };
+
+    while (reconcileRenamedCategories()) {
+      // keep reconciling from top to bottom so renamed parent folders cascade into descendants
+    }
+
+    pathToCategoryId = categoryPathMap(nextCategories);
 
     scanResult.folders
       .sort((a, b) => a.parts.length - b.parts.length)
@@ -913,8 +979,80 @@ export default function App() {
         pathToCategoryId.set(key, category.id);
       });
 
+    const scannedFilesByPath = new Map(scanResult.files.map((file) => [file.path.toLowerCase(), file]));
+    const updatedFiles: FileRecord[] = [];
+    const unmatchedScannedFiles = new Map(scannedFilesByPath);
+
+    currentData.files.forEach((file) => {
+      const scanned = scannedFilesByPath.get(file.path.toLowerCase());
+      if (!scanned) return;
+      unmatchedScannedFiles.delete(file.path.toLowerCase());
+      updatedFiles.push({
+        ...file,
+        name: scanned.name,
+        path: scanned.path,
+        ext: scanned.ext,
+        size: scanned.size,
+        modifiedAt: scanned.modifiedAt,
+        categoryId: scanned.categoryId || pathToCategoryId.get(categoryPathKey(scanned.categoryParts)) || file.categoryId || "",
+        storedPath: scanned.storedPath || scanned.path,
+        missing: false,
+        lastCheckedAt: now
+      });
+    });
+
+    const missingManagedFiles = currentData.files.filter((file) => {
+      if (scannedFilesByPath.has(file.path.toLowerCase())) return false;
+      return isPathInsideLibrary(file.path, currentData.settings.libraryDir);
+    });
+
+    const unmatchedByFingerprint = new Map<string, Array<(typeof scanResult.files)[number]>>();
+    [...unmatchedScannedFiles.values()].forEach((file) => {
+      const key = fileFingerprint(file);
+      unmatchedByFingerprint.set(key, [...(unmatchedByFingerprint.get(key) || []), file]);
+    });
+
+    let renamedFileCount = 0;
+    missingManagedFiles.forEach((file) => {
+      const candidates = unmatchedByFingerprint.get(fileFingerprint(file)) || [];
+      if (candidates.length !== 1) return;
+      const matched = candidates[0];
+      unmatchedScannedFiles.delete(matched.path.toLowerCase());
+      unmatchedByFingerprint.set(
+        fileFingerprint(file),
+        candidates.filter((candidate) => candidate.path.toLowerCase() !== matched.path.toLowerCase())
+      );
+      updatedFiles.push({
+        ...file,
+        name: matched.name,
+        path: matched.path,
+        ext: matched.ext,
+        size: matched.size,
+        modifiedAt: matched.modifiedAt,
+        categoryId: matched.categoryId || pathToCategoryId.get(categoryPathKey(matched.categoryParts)) || file.categoryId || "",
+        storedPath: matched.storedPath || matched.path,
+        missing: false,
+        lastCheckedAt: now
+      });
+      renamedFileCount += 1;
+    });
+
+    const updatedFileIds = new Set(updatedFiles.map((file) => file.id));
+    currentData.files.forEach((file) => {
+      if (updatedFileIds.has(file.id)) return;
+      if (isPathInsideLibrary(file.path, currentData.settings.libraryDir)) {
+        updatedFiles.push({
+          ...file,
+          missing: !scannedFilesByPath.has(file.path.toLowerCase()),
+          lastCheckedAt: now
+        });
+        return;
+      }
+      updatedFiles.push(file);
+    });
+
     const existingPaths = new Set(currentData.files.map((file) => file.path.toLowerCase()));
-    const newFiles = scanResult.files
+    const newFiles = [...unmatchedScannedFiles.values()]
       .filter((file) => !existingPaths.has(file.path.toLowerCase()))
       .map((file) => ({
         id: makeId("file"),
@@ -923,7 +1061,7 @@ export default function App() {
         ext: file.ext,
         size: file.size,
         modifiedAt: file.modifiedAt,
-        importedAt: new Date().toISOString(),
+        importedAt: now,
         categoryId: file.categoryId || pathToCategoryId.get(categoryPathKey(file.categoryParts)) || "",
         tags: [],
         note: "从知识库目录扫描入库",
@@ -931,13 +1069,16 @@ export default function App() {
         storedPath: file.storedPath || file.path,
         importMode: file.importMode || "copy",
         missing: false,
-        lastCheckedAt: new Date().toISOString()
+        lastCheckedAt: now
       }));
 
     return {
       nextCategories,
       newFiles,
-      newCategoryCount: nextCategories.length - currentData.categories.length
+      updatedFiles,
+      newCategoryCount: nextCategories.length - currentData.categories.length,
+      renamedCategoryCount,
+      renamedFileCount
     };
   }
 
@@ -955,9 +1096,10 @@ export default function App() {
         libraryDir: data.settings.libraryDir,
         categories: data.categories
       });
-      const { nextCategories, newFiles, newCategoryCount } = buildLibrarySyncResult(data, scanResult);
+      const { nextCategories, newFiles, updatedFiles, newCategoryCount, renamedCategoryCount, renamedFileCount } =
+        buildLibrarySyncResult(data, scanResult);
 
-      if (!newFiles.length && !newCategoryCount) {
+      if (!newFiles.length && !newCategoryCount && !renamedCategoryCount && !renamedFileCount) {
         if (showNotification) {
           notifications.show({ title: "扫描完成", message: "没有发现新的未索引文件或文件夹。", color: "gray" });
         }
@@ -985,12 +1127,12 @@ export default function App() {
         }
       }
 
-      await persist({ ...data, categories: nextCategories, files: [...indexedNewFiles, ...data.files] });
+      await persist({ ...data, categories: nextCategories, files: [...indexedNewFiles, ...updatedFiles] });
       if (indexedNewFiles[0]) setSelectedFileId(indexedNewFiles[0].id);
       if (showNotification) {
         notifications.show({
           title: "扫描完成",
-          message: `新增 ${newCategoryCount} 个分类，${indexedNewFiles.length} 个文件索引`,
+          message: `新增 ${newCategoryCount} 个分类，重命名分类 ${renamedCategoryCount} 个，新增文件 ${indexedNewFiles.length} 个，更新文件 ${renamedFileCount} 个`,
           color: "teal"
         });
       }
