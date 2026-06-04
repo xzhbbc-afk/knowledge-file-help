@@ -69,6 +69,8 @@ const PDF_TEXT_EXTS = new Set(["pdf"]);
 const OCR_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "bmp"]);
 const SUPPORTED_TEXT_EXTS = new Set([...PLAIN_TEXT_EXTS, ...OFFICE_TEXT_EXTS, ...PDF_TEXT_EXTS]);
 const wordExtractor = new WordExtractor();
+const LATIN_TOKEN_PATTERN = /[a-z0-9_]{2,}/g;
+const CJK_SEQUENCE_PATTERN = /[\u3400-\u9fff]+/g;
 
 let SQLPromise;
 
@@ -88,6 +90,45 @@ function normalizeData(data) {
       ...(data?.settings && typeof data.settings === "object" ? data.settings : {})
     }
   };
+}
+
+function tokenizeContent(value) {
+  const text = String(value || "").toLowerCase();
+  const tokens = new Set();
+
+  const latinMatches = text.match(LATIN_TOKEN_PATTERN) || [];
+  latinMatches.forEach((token) => tokens.add(token));
+
+  const cjkMatches = text.match(CJK_SEQUENCE_PATTERN) || [];
+  cjkMatches.forEach((sequence) => {
+    if (sequence.length === 1) {
+      tokens.add(sequence);
+      return;
+    }
+
+    for (let index = 0; index < sequence.length - 1; index += 1) {
+      tokens.add(sequence.slice(index, index + 2));
+    }
+  });
+
+  return [...tokens];
+}
+
+function snippetForMatch(content, query, fallbackTokens = []) {
+  const text = String(content || "");
+  const loweredContent = text.toLowerCase();
+  const loweredQuery = String(query || "").toLowerCase();
+  let index = loweredQuery ? loweredContent.indexOf(loweredQuery) : -1;
+
+  if (index < 0) {
+    const token = fallbackTokens.find(Boolean);
+    if (token) index = loweredContent.indexOf(String(token).toLowerCase());
+  }
+
+  if (index < 0) index = 0;
+  const start = Math.max(index - 36, 0);
+  const end = Math.min(index + Math.max(loweredQuery.length, 12) + 72, text.length);
+  return text.slice(start, end).replace(/\s+/g, " ").trim();
 }
 
 async function extractContentText(file) {
@@ -269,6 +310,12 @@ async function createStore(userDataPath) {
         length INTEGER NOT NULL DEFAULT 0,
         content TEXT NOT NULL DEFAULT ''
       );
+      CREATE TABLE IF NOT EXISTS content_terms (
+        term TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'text',
+        PRIMARY KEY (term, file_id)
+      );
     `);
     const contentColumns = queryAll(db, "PRAGMA table_info(content_index)").map((column) => String(column.name));
     if (!contentColumns.includes("content")) {
@@ -276,6 +323,48 @@ async function createStore(userDataPath) {
     }
     if (!contentColumns.includes("source")) {
       db.run("ALTER TABLE content_index ADD COLUMN source TEXT NOT NULL DEFAULT 'text'");
+    }
+    const contentTermCount = Number(queryAll(db, "SELECT COUNT(*) AS count FROM content_terms")[0]?.count || 0);
+    const contentRowCount = Number(queryAll(db, "SELECT COUNT(*) AS count FROM content_index WHERE status = 'indexed' AND content <> ''")[0]?.count || 0);
+    if (!contentTermCount && contentRowCount) {
+      rebuildContentTerms(db);
+    }
+  }
+
+  function rebuildContentTerms(db) {
+    db.run("DELETE FROM content_terms");
+    const rows = queryAll(
+      db,
+      "SELECT file_id AS fileId, source, content FROM content_index WHERE status = 'indexed' AND content <> ''"
+    );
+    rows.forEach((row) => {
+      tokenizeContent(row.content).forEach((term) => {
+        db.run("INSERT OR IGNORE INTO content_terms (term, file_id, source) VALUES (?, ?, ?)", [
+          term,
+          row.fileId,
+          row.source || "text"
+        ]);
+      });
+    });
+  }
+
+  function replaceContentIndex(db, fileId, status, source, indexedAt, error, content) {
+    db.run("DELETE FROM content_index WHERE file_id = ?", [fileId]);
+    db.run("DELETE FROM content_terms WHERE file_id = ?", [fileId]);
+    db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+      fileId,
+      status,
+      source,
+      indexedAt,
+      error,
+      content.length,
+      content
+    ]);
+
+    if (status === "indexed" && content) {
+      tokenizeContent(content).forEach((term) => {
+        db.run("INSERT OR IGNORE INTO content_terms (term, file_id, source) VALUES (?, ?, ?)", [term, fileId, source]);
+      });
     }
   }
 
@@ -410,7 +499,10 @@ async function createStore(userDataPath) {
 
       const fileIds = new Set(normalized.files.map((file) => file.id));
       queryValues(db, "SELECT file_id FROM content_index").forEach((fileId) => {
-        if (!fileIds.has(fileId)) db.run("DELETE FROM content_index WHERE file_id = ?", [fileId]);
+        if (!fileIds.has(fileId)) {
+          db.run("DELETE FROM content_index WHERE file_id = ?", [fileId]);
+          db.run("DELETE FROM content_terms WHERE file_id = ?", [fileId]);
+        }
       });
 
       normalized.rules.forEach((rule) => {
@@ -492,16 +584,7 @@ async function createStore(userDataPath) {
         const ext = String(file.ext || "").toLowerCase();
         if (!SUPPORTED_TEXT_EXTS.has(ext)) {
           const indexedAt = new Date().toISOString();
-          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-            file.id,
-            "skipped",
-            "text",
-            indexedAt,
-            "暂不支持该文件类型",
-            0,
-            ""
-          ]);
+          replaceContentIndex(db, file.id, "skipped", "text", indexedAt, "暂不支持该文件类型", "");
           results.push({
             id: file.id,
             status: "skipped",
@@ -519,29 +602,11 @@ async function createStore(userDataPath) {
 
           const content = await extractContentText(file);
           const indexedAt = new Date().toISOString();
-          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-            file.id,
-            "indexed",
-            "text",
-            indexedAt,
-            null,
-            content.length,
-            content
-          ]);
+          replaceContentIndex(db, file.id, "indexed", "text", indexedAt, null, content);
           results.push({ id: file.id, status: "indexed", error: "", indexedAt });
         } catch (error) {
           const indexedAt = new Date().toISOString();
-          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-            file.id,
-            "failed",
-            "text",
-            indexedAt,
-            error.message || String(error),
-            0,
-            ""
-          ]);
+          replaceContentIndex(db, file.id, "failed", "text", indexedAt, error.message || String(error), "");
           results.push({ id: file.id, status: "failed", error: error.message || String(error), indexedAt });
         }
       }
@@ -584,16 +649,7 @@ async function createStore(userDataPath) {
 
         if (!OCR_IMAGE_EXTS.has(ext)) {
           const indexedAt = new Date().toISOString();
-          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-            file.id,
-            "skipped",
-            "ocr",
-            indexedAt,
-            "暂不支持 OCR 的文件类型",
-            0,
-            ""
-          ]);
+          replaceContentIndex(db, file.id, "skipped", "ocr", indexedAt, "暂不支持 OCR 的文件类型", "");
           results.push({
             id: file.id,
             status: "skipped",
@@ -621,16 +677,7 @@ async function createStore(userDataPath) {
             }
           });
           const indexedAt = new Date().toISOString();
-          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-            file.id,
-            "indexed",
-            "ocr",
-            indexedAt,
-            null,
-            content.length,
-            content
-          ]);
+          replaceContentIndex(db, file.id, "indexed", "ocr", indexedAt, null, content);
           results.push({ id: file.id, status: "indexed", source: "ocr", error: "", indexedAt });
           if (typeof onProgress === "function") {
             onProgress({
@@ -644,16 +691,7 @@ async function createStore(userDataPath) {
           }
         } catch (error) {
           const indexedAt = new Date().toISOString();
-          db.run("DELETE FROM content_index WHERE file_id = ?", [file.id]);
-          db.run("INSERT INTO content_index (file_id, status, source, indexed_at, error, length, content) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-            file.id,
-            "failed",
-            "ocr",
-            indexedAt,
-            error.message || String(error),
-            0,
-            ""
-          ]);
+          replaceContentIndex(db, file.id, "failed", "ocr", indexedAt, error.message || String(error), "");
           results.push({ id: file.id, status: "failed", source: "ocr", error: error.message || String(error), indexedAt });
         }
       }
@@ -674,23 +712,60 @@ async function createStore(userDataPath) {
     if (!trimmed) return [];
     const db = openDatabase();
     execSchema(db);
-    const lowered = trimmed.toLowerCase();
-    const rows = queryAll(db, "SELECT file_id AS fileId, source, content FROM content_index WHERE status = 'indexed'");
+    const tokens = tokenizeContent(trimmed);
+    if (!tokens.length) {
+      db.close();
+      return [];
+    }
+
+    const placeholders = tokens.map(() => "?").join(", ");
+    const candidateRows = queryAll(
+      db,
+      `SELECT file_id AS fileId, COUNT(*) AS hitCount
+       FROM content_terms
+       WHERE term IN (${placeholders})
+       GROUP BY file_id
+       ORDER BY hitCount DESC
+       LIMIT 500`,
+      tokens
+    );
+
+    if (!candidateRows.length) {
+      db.close();
+      return [];
+    }
+
+    const rows = candidateRows.map((row) => {
+      const contentRow = queryAll(
+        db,
+        "SELECT source, content FROM content_index WHERE file_id = ? AND status = 'indexed'",
+        [row.fileId]
+      )[0];
+      if (!contentRow) return null;
+      return {
+        fileId: row.fileId,
+        source: contentRow.source || "text",
+        content: String(contentRow.content || ""),
+        hitCount: Number(row.hitCount || 0)
+      };
+    }).filter(Boolean);
     db.close();
     return rows
       .map((row) => {
         const content = String(row.content || "");
-        const index = content.toLowerCase().indexOf(lowered);
-        if (index < 0) return null;
-        const start = Math.max(index - 36, 0);
-        const end = Math.min(index + trimmed.length + 72, content.length);
+        const loweredContent = content.toLowerCase();
+        const loweredQuery = trimmed.toLowerCase();
+        const matched = loweredContent.includes(loweredQuery) || tokens.some((token) => loweredContent.includes(token));
+        if (!matched) return null;
         return {
           fileId: row.fileId,
           source: row.source || "text",
-          snippet: content.slice(start, end).replace(/\s+/g, " ").trim()
+          snippet: snippetForMatch(content, trimmed, tokens),
+          hitCount: row.hitCount
         };
       })
       .filter(Boolean)
+      .sort((a, b) => b.hitCount - a.hitCount)
       .slice(0, 500)
       .map((row) => row);
   }
