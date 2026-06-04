@@ -423,3 +423,322 @@ Electron 官方 API 文档明确提醒，重复调用可能造成问题。
 
 这就是当前最合适的落地方式。
 
+## 18. 项目实战补充：这次实际踩到的坑
+
+下面这些不是泛泛而谈，而是这个项目在真实开发和发版过程中已经碰到过的问题。
+
+### 18.1 Electron 打包后打开空白页
+
+现象：
+
+- `win-unpacked` 或安装包打开后，窗口是空白
+
+原因：
+
+- Vite 构建产物里资源路径还是根路径
+- 例如：
+  - `/assets/index-xxx.js`
+  - `/logo.png`
+- Electron 打包后走的是 `file://`，不是开发服务器根路径，所以这些资源找不到
+
+修法：
+
+- 在 `vite.config.ts` 里设置：
+
+```ts
+export default defineConfig({
+  root: "src/renderer",
+  base: "./"
+})
+```
+
+判断方法：
+
+- 打开 `dist/renderer/index.html`
+- 确认资源路径是：
+  - `./assets/...`
+  - `./logo.png`
+
+### 18.2 PDF OCR / PDF 全文提取版本冲突
+
+现象：
+
+- 另一台电脑上 PDF OCR 报错：
+
+```text
+The API version "5.4.296" does not match the Worker version "5.4.624"
+```
+
+原因：
+
+- 项目里同时存在两套 `pdfjs-dist`
+- `pdf-parse` 自带的是 `5.4.296`
+- 顶层又装了 `pdfjs-dist 5.4.624`
+- 打包后某条运行路径同时用了不同版本的 API 和 worker
+
+修法：
+
+1. 尽量统一到同一版本
+2. PDF 提取逻辑优先固定加载 `pdf-parse` 自带那套 `pdfjs`
+3. 顶层 `pdfjs-dist` 也改成相同版本
+
+经验：
+
+- 这类问题在开发环境不一定稳定复现
+- 打包后更容易暴露
+- 所以 PDF 相关依赖不要混着升级
+
+### 18.3 Windows 打包最后一步常见 EBUSY
+
+现象：
+
+- 安装包已经生成
+- 但命令最后报：
+  - `EBUSY`
+  - `resource busy or locked`
+  - `unlink ... nsis.7z`
+
+原因：
+
+- 临时压缩包正在被系统、杀软或索引服务占用
+
+处理方式：
+
+- 先看 `release` 目录里安装包本体和 `win-unpacked` 是否已经生成
+- 如果已经有：
+  - `setup.exe`
+  - `win-unpacked`
+- 那通常成品是可用的，失败的是收尾清理，不一定影响使用
+
+更稳的处理：
+
+- 重新指定一个全新的输出目录再打一次
+
+例如：
+
+```bash
+npx electron-builder --win nsis --config.directories.output=release-20260604-191846
+```
+
+### 18.4 旧的 win-unpacked 被占用，导致无法重新打包
+
+现象：
+
+- 重新打包时报 `app.asar` 或 `win-unpacked` 被占用
+
+原因：
+
+- 旧版本的解包程序可能还在运行
+- 即使窗口关了，也可能还没完全退出
+- 或者正在被系统扫描
+
+处理方式：
+
+1. 确认旧程序已经真正退出
+2. 不要只关窗口，还要看是否还在系统托盘
+3. 如果着急重新出包，直接改输出目录，绕过旧目录
+
+### 18.5 GitHub Release 发成功了，但看不到
+
+现象：
+
+- 命令行看起来已经发布成功
+- 但 GitHub Releases 页面上用户没看到
+
+原因：
+
+- `electron-builder` 默认创建的常常是 `draft release`
+
+影响：
+
+- 普通用户看不到
+- `electron-updater` 也通常看不到 draft release
+
+处理方式：
+
+1. 去 Releases 页面看是否是 `Draft`
+2. 如果是，手动点 `Publish release`
+3. 或者显式配置发布类型
+
+例如：
+
+```json
+"publish": [
+  {
+    "provider": "github",
+    "owner": "xzhbbc-afk",
+    "repo": "knowledge-file-help",
+    "releaseType": "release"
+  }
+]
+```
+
+### 18.6 本地 release:win / release:mac 超时
+
+现象：
+
+- 本地打包能跑
+- 但发布时超时，例如：
+
+```text
+connect ETIMEDOUT 20.27.177.116:443
+```
+
+原因：
+
+- 本地到 GitHub 网络不稳定
+- 上传 Release 资源时失败
+
+判断方式：
+
+先分开看：
+
+1. `dist:win` / `dist:mac` 是否成功
+2. 只有 `release:win` / `release:mac` 失败
+
+如果是这样，说明：
+
+- 本地打包没问题
+- 失败的是上传发布，不是项目构建
+
+建议：
+
+- 能本地发就本地发
+- 如果本地网络不稳，后面优先改成 GitHub Actions 发版
+
+### 18.7 GH_TOKEN 泄露
+
+现象：
+
+- 把 `GH_TOKEN` 直接发到了聊天、文档或截图里
+
+处理原则：
+
+- 只要 token 出现在公开或半公开渠道，就当作已经泄露
+
+必须立即做：
+
+1. 去 GitHub 撤销旧 token
+2. 重新创建新 token
+3. 新 token 不要再写进聊天记录或代码仓库
+
+本地使用方式：
+
+```powershell
+$env:GH_TOKEN="你的新token"
+npm run release:win
+```
+
+### 18.8 mac 发布时报 Request path contains unescaped characters
+
+现象：
+
+- mac 打包能完成
+- 上传到 GitHub Releases 时失败
+- 报错：
+
+```text
+Request path contains unescaped characters
+```
+
+原因：
+
+- 发布产物文件名里带了中文
+- `electron-publish` 走 GitHub 上传路径时，没有对这类字符做兼容处理
+
+本项目实际触发点就是：
+
+- `本地文件知识库-0.1.0-mac.zip`
+- `本地文件知识库-0.1.0-mac.zip.blockmap`
+
+修法：
+
+- mac 发布产物文件名改成 ASCII
+- 应用显示名可以继续保留中文
+- 只改上传用的文件名
+
+例如：
+
+```json
+"mac": {
+  "target": ["zip"],
+  "artifactName": "knowledge-file-help-${version}-mac-${arch}.${ext}"
+}
+```
+
+### 18.9 mac 日志里 0 valid identities found
+
+现象：
+
+```text
+0 valid identities found
+```
+
+含义：
+
+- 当前机器没有可用的 Apple 签名身份
+
+这不一定会阻止你生成 zip 包并上传到 GitHub Releases，但它意味着：
+
+- 你现在不是正式签名分发链路
+- 后续如果要更稳的 mac 分发体验，仍然需要签名和 notarization
+
+判断方式：
+
+- 如果只是做测试 zip 发布，这个提示可以先接受
+- 如果后面要让更多用户稳定安装，必须补签名
+
+### 18.10 检查更新为什么“发完了但用户看不到”
+
+现象：
+
+- Release 已经发好了
+- 用户点“检查更新”却提示已是最新版
+
+最常见原因：
+
+1. 用户当前安装版本和 Release 版本相同
+2. Release 还是 draft
+3. 用户本地不是打包版，而是开发环境运行
+4. `build.publish.owner/repo` 没配对
+
+正确验证流程：
+
+1. 保留旧版本，例如 `0.1.0`
+2. 把项目版本升到 `0.1.1`
+3. 发布 `0.1.1`
+4. 用旧版 `0.1.0` 安装包启动
+5. 再点“检查更新”
+
+只有这样，客户端才会真正显示“发现新版本”。
+
+### 18.11 首次验证要清空本地记录
+
+如果要验证“首次进入引导”这类能力，不要只删安装包，要删本地用户数据。
+
+本项目实际数据目录是：
+
+- `C:\Users\admin\AppData\Roaming\knowledge-file-help\metadata.sqlite`
+- `C:\Users\admin\AppData\Roaming\knowledge-file-help\file-kb-store.json`
+- `C:\Users\admin\AppData\Roaming\knowledge-file-help\tessdata`
+
+最直接做法：
+
+1. 完全退出应用
+2. 删除 `C:\Users\admin\AppData\Roaming\knowledge-file-help`
+3. 再启动应用
+
+这样才能回到真正的首次状态。
+
+## 19. 本项目当前推荐的发版与验证顺序
+
+按这次实战经验，最稳的顺序是：
+
+1. 本地先执行 `npm run build`
+2. 再执行 `npm run dist:win` 或 `npm run dist:mac`
+3. 确认本地产物可运行
+4. 再执行 `npm run release:win` 或 `npm run release:mac`
+5. 去 GitHub Releases 看是否成功生成并发布
+6. 用旧版本客户端点“检查更新”验证
+
+如果本地上传经常不稳，下一步就该切 GitHub Actions。
