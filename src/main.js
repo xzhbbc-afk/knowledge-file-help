@@ -10,6 +10,7 @@ let libraryWatcherDir = "";
 let libraryWatcherTimer = null;
 let libraryWatcherEvents = 0;
 let ocrCancelRequested = false;
+let libraryWatcherSuppressUntil = 0;
 
 function uniqueDestinationPath(directoryPath, fileName) {
   const parsed = path.parse(fileName);
@@ -237,12 +238,32 @@ function stopLibraryWatcher() {
   sendToRenderer("library:watch-status", { active: false, libraryDir: "" });
 }
 
+function suppressLibraryWatcher(ms = 8000) {
+  libraryWatcherSuppressUntil = Date.now() + ms;
+  libraryWatcherEvents = 0;
+  if (libraryWatcherTimer) {
+    clearTimeout(libraryWatcherTimer);
+    libraryWatcherTimer = null;
+  }
+  if (libraryWatcherDir) {
+    sendToRenderer("library:watch-status", {
+      active: true,
+      libraryDir: libraryWatcherDir,
+      pending: false,
+      eventCount: 0
+    });
+  }
+}
+
 function startLibraryWatcher(libraryDir) {
   stopLibraryWatcher();
   if (!libraryDir || !fs.existsSync(libraryDir)) return;
 
   libraryWatcherDir = libraryDir;
-  libraryWatcher = fs.watch(libraryDir, { recursive: true }, () => {
+  libraryWatcher = fs.watch(libraryDir, { recursive: true }, (_eventType, filename) => {
+    if (Date.now() < libraryWatcherSuppressUntil) return;
+    if (typeof filename === "string" && filename.replace(/\\/g, "/").toLowerCase().endsWith("/_index.md")) return;
+    if (typeof filename === "string" && filename.toLowerCase() === "_index.md") return;
     libraryWatcherEvents += 1;
     sendToRenderer("library:watch-status", {
       active: true,
@@ -403,6 +424,7 @@ ipcMain.handle("dirs:sync-category-folders", async (_event, payload) => {
   const libraryDir = payload?.libraryDir || "";
   const categories = Array.isArray(payload?.categories) ? payload.categories : [];
   const files = Array.isArray(payload?.files) ? payload.files : [];
+  suppressLibraryWatcher();
   createCategoryFolders(libraryDir, categories);
   const contentByFileId = store.contentTextByFileIds(files.map((file) => file.id));
   createObsidianIndexes(
@@ -438,6 +460,7 @@ ipcMain.handle("files:import-to-library", async (_event, payload) => {
     throw new Error("请先选择知识库目录。");
   }
 
+  suppressLibraryWatcher();
   fs.mkdirSync(libraryDir, { recursive: true });
   createCategoryFolders(libraryDir, categories);
 
@@ -478,6 +501,7 @@ ipcMain.handle("files:relocate-library-file", async (_event, payload) => {
     throw new Error("请先选择知识库目录。");
   }
 
+  suppressLibraryWatcher();
   createCategoryFolders(libraryDir, categories);
   const targetDir = path.join(libraryDir, ...categoryDirParts(categories, categoryId));
   fs.mkdirSync(targetDir, { recursive: true });
