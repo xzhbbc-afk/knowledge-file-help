@@ -5,7 +5,7 @@ const initSqlJs = require("sql.js/dist/sql-asm.js");
 const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
 const XLSX = require("xlsx");
-const { createCanvas } = require("@napi-rs/canvas");
+const { PDFParse } = require("pdf-parse");
 const { createWorker } = require("tesseract.js");
 
 const defaultData = {
@@ -84,7 +84,6 @@ const OCR_NOISE_PATTERNS = [
   "Error attempting to read image"
 ];
 const OCR_PDF_PAGE_LIMIT = 20;
-const PDF_TEXT_LAYER_MIN_LENGTH = 80;
 
 let SQLPromise;
 let pdfjsPromise;
@@ -288,26 +287,19 @@ async function recognizeWithWorker(worker, input) {
   });
 }
 
-function hasUsablePdfTextLayer(content) {
-  const normalized = String(content || "").replace(/\s+/g, "");
-  return normalized.length >= PDF_TEXT_LAYER_MIN_LENGTH;
-}
-
 async function renderPdfPagesForOcr(file, options = {}) {
-  const pdfjsLib = await pdfjs();
-  const data = new Uint8Array(fs.readFileSync(file.path));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    disableWorker: true,
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true
-  });
-  const pdf = await loadingTask.promise;
+  const parser = new PDFParse({ data: fs.readFileSync(file.path) });
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "file-kb-pdf-ocr-"));
 
   try {
-    const pageCount = Math.min(pdf.numPages || 0, OCR_PDF_PAGE_LIMIT);
+    const result = await parser.getScreenshot({
+      first: 1,
+      last: OCR_PDF_PAGE_LIMIT,
+      imageDataUrl: false,
+      imageBuffer: true,
+      desiredWidth: 1800
+    });
+    const pageCount = Math.min(result.total || 0, OCR_PDF_PAGE_LIMIT, (result.pages || []).length);
     const renderedPages = [];
 
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
@@ -324,16 +316,10 @@ async function renderPdfPagesForOcr(file, options = {}) {
         });
       }
 
-      const page = await pdf.getPage(pageIndex + 1);
-      const viewport = page.getViewport({ scale: 1.6 });
-      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-      const context = canvas.getContext("2d");
-      await page.render({
-        canvasContext: context,
-        viewport
-      }).promise;
+      const page = result.pages?.[pageIndex];
+      if (!page?.data?.length) continue;
       const imagePath = path.join(tempDir, `page-${pageIndex + 1}.png`);
-      fs.writeFileSync(imagePath, canvas.toBuffer("image/png"));
+      fs.writeFileSync(imagePath, Buffer.from(page.data));
       renderedPages.push({
         pageNumber: pageIndex + 1,
         imagePath
@@ -347,7 +333,7 @@ async function renderPdfPagesForOcr(file, options = {}) {
     }
     throw error;
   } finally {
-    await loadingTask.destroy();
+    await parser.destroy();
   }
 }
 
@@ -376,23 +362,6 @@ async function extractOcrText(file, options = {}) {
   }
 
   if (ext === "pdf") {
-    try {
-      const textContent = await extractContentText(file);
-      if (hasUsablePdfTextLayer(textContent)) {
-        if (typeof options.onProgress === "function") {
-          options.onProgress({
-            fileId: file.id,
-            fileName: file.name,
-            status: "检测到文本层，跳过 OCR",
-            progress: 1
-          });
-        }
-        return textContent.slice(0, TEXT_INDEX_LIMIT);
-      }
-    } catch (_error) {
-      // text-layer detection is best effort; scanned PDFs continue into OCR
-    }
-
     const worker = await createOcrWorker(file, options);
     const pages = await renderPdfPagesForOcr(file, options);
     const chunks = [];
