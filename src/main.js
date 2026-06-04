@@ -12,6 +12,10 @@ let libraryWatcherEvents = 0;
 let ocrCancelRequested = false;
 let libraryWatcherSuppressUntil = 0;
 
+function resolveAssetPath(...parts) {
+  return path.join(__dirname, "..", ...parts);
+}
+
 function uniqueDestinationPath(directoryPath, fileName) {
   const parsed = path.parse(fileName);
   let candidate = path.join(directoryPath, fileName);
@@ -299,6 +303,7 @@ function createWindow() {
     height: 860,
     minWidth: 1100,
     minHeight: 680,
+    icon: resolveAssetPath("assets", "local-knowledge-logo.png"),
     backgroundColor: "#f6f7f4",
     title: "本地文件知识库",
     webPreferences: {

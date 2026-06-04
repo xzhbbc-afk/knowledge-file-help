@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "concurrently \"vite --config vite.config.ts --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "start": "npm run build && electron .",
-    "build": "vite build --config vite.config.ts && node scripts/check.js"
+    "build": "vite build --config vite.config.ts && node scripts/check.js",
+    "pack": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:mac": "npm run build && electron-builder --mac zip"
   },
   "devDependencies": {
     "@types/react": "^19.2.16",
@@ -15,6 +18,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
     "typescript": "^6.0.3",
     "vite": "^6.4.3",
     "wait-on": "^9.0.10"
@@ -37,6 +41,45 @@
     "tesseract.js": "^7.0.0",
     "word-extractor": "^1.0.4",
     "xlsx": "^0.18.5"
+  },
+  "build": {
+    "appId": "com.local.knowledge-file-help",
+    "productName": "本地文件知识库",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "src/main.js",
+      "src/preload.js",
+      "src/store.js",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/local-knowledge-logo.png"
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "assets/local-knowledge-logo.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-setup-${arch}.${ext}"
+    }
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

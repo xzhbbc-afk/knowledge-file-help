@@ -46,6 +46,7 @@ import {
   Ellipsis
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import appLogo from "../../../assets/local-knowledge-logo.png";
 
 const seededCategoryIds = new Set([
   "cat_reports",
@@ -1589,7 +1590,7 @@ export default function App() {
     <AppShell navbar={{ width: 292, breakpoint: "sm" }} header={{ height: 72 }}>
       <AppShell.Navbar className="sidebarShell">
         <Group className="brandBlock" gap="sm" wrap="nowrap">
-          <div className="brandMark">知</div>
+          <img src={appLogo} alt="本地文件知识库" className="brandLogo" />
           <div>
             <Title order={3}>本地文件知识库</Title>
             <Text size="xs" c="dimmed">本地索引</Text>
