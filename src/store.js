@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const initSqlJs = require("sql.js/dist/sql-asm.js");
 const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
@@ -94,7 +95,12 @@ function sql() {
 }
 
 async function pdfjs() {
-  if (!pdfjsPromise) pdfjsPromise = import("pdfjs-dist/legacy/build/pdf.mjs");
+  if (!pdfjsPromise) {
+    const bundledPdfjsEntry = path.join(__dirname, "..", "node_modules", "pdf-parse", "node_modules", "pdfjs-dist", "legacy", "build", "pdf.mjs");
+    const fallbackPdfjsEntry = path.join(__dirname, "..", "node_modules", "pdfjs-dist", "legacy", "build", "pdf.mjs");
+    const resolvedEntry = fs.existsSync(bundledPdfjsEntry) ? bundledPdfjsEntry : fallbackPdfjsEntry;
+    pdfjsPromise = import(pathToFileURL(resolvedEntry).href);
+  }
   return pdfjsPromise;
 }
 
