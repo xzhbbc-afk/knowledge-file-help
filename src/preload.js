@@ -25,5 +25,6 @@ contextBridge.exposeInMainWorld("fileKb", {
   contentTextByFileIds: (fileIds) => ipcRenderer.invoke("content:text-by-file-ids", fileIds),
   getContentIndex: (fileId) => ipcRenderer.invoke("content:get-index", fileId),
   openFile: (filePath) => ipcRenderer.invoke("files:open", filePath),
-  showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath)
+  showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath),
+  quitApp: () => ipcRenderer.invoke("app:quit")
 });

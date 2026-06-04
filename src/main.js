@@ -1,16 +1,19 @@
 const path = require("path");
 const fs = require("fs");
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, shell } = require("electron");
 const { createStore } = require("./store");
 
 let mainWindow;
 let store;
+let tray = null;
 let libraryWatcher = null;
 let libraryWatcherDir = "";
 let libraryWatcherTimer = null;
 let libraryWatcherEvents = 0;
 let ocrCancelRequested = false;
 let libraryWatcherSuppressUntil = 0;
+let isQuitting = false;
+let trayNoticeShown = false;
 
 function resolveAssetPath(...parts) {
   return path.join(__dirname, "..", ...parts);
@@ -228,6 +231,35 @@ function sendToRenderer(channel, payload) {
   }
 }
 
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow.isVisible()) mainWindow.show();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return tray;
+
+  tray = new Tray(resolveAssetPath("assets", "local-knowledge-logo.png"));
+  tray.setToolTip("本地文件知识库");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: "打开主界面",
+      click: () => showMainWindow()
+    },
+    {
+      label: "退出应用",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]));
+  tray.on("click", () => showMainWindow());
+  return tray;
+}
+
 function stopLibraryWatcher() {
   if (libraryWatcherTimer) {
     clearTimeout(libraryWatcherTimer);
@@ -324,10 +356,25 @@ function createWindow() {
       mainWindow.webContents.openDevTools({ mode: "detach" });
     });
   }
+
+  mainWindow.on("close", (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+    if (tray && !trayNoticeShown) {
+      trayNoticeShown = true;
+      tray.displayBalloon({
+        iconType: "info",
+        title: "应用仍在后台运行",
+        content: "已缩小到系统托盘。需要完全退出时，请右键托盘图标选择“退出应用”。"
+      });
+    }
+  });
 }
 
 app.whenReady().then(async () => {
   store = await createStore(app.getPath("userData"));
+  createTray();
   createWindow();
   globalShortcut.register("F12", () => {
     if (mainWindow) mainWindow.webContents.toggleDevTools();
@@ -342,10 +389,11 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin" && isQuitting) app.quit();
 });
 
 app.on("will-quit", () => {
+  isQuitting = true;
   globalShortcut.unregisterAll();
   stopLibraryWatcher();
 });
@@ -609,4 +657,10 @@ ipcMain.handle("files:show", async (_event, filePath) => {
 
   shell.showItemInFolder(filePath);
   return { ok: true, message: "" };
+});
+
+ipcMain.handle("app:quit", async () => {
+  isQuitting = true;
+  app.quit();
+  return { ok: true };
 });

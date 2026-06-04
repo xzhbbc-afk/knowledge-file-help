@@ -43,7 +43,8 @@ import {
   Square,
   Eye,
   X,
-  Ellipsis
+  Ellipsis,
+  Power
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import appLogo from "../../../assets/local-knowledge-logo.png";
@@ -306,6 +307,7 @@ export default function App() {
   const [ruleDrafts, setRuleDrafts] = useState<RuleRecord[]>([]);
   const [ruleScopeDraft, setRuleScopeDraft] = useState<ArchiveRuleScope>("root");
   const [introModalOpen, setIntroModalOpen] = useState(false);
+  const [libraryGuideOpen, setLibraryGuideOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -538,6 +540,7 @@ export default function App() {
       const libraryDir = await window.fileKb.chooseDirectory();
       if (!libraryDir) return;
       await persist({ ...data, settings: { ...data.settings, libraryDir } });
+      setLibraryGuideOpen(false);
       await refreshStorageStats(libraryDir);
       notifications.show({ title: "知识库目录已保存", message: libraryDir, color: "teal" });
     } catch (error) {
@@ -587,6 +590,7 @@ export default function App() {
         const cleaned = withSyncedTags(removeSeededDataIfUnused(loaded));
         setData(cleaned);
         await window.fileKb.save(cleaned);
+        setLibraryGuideOpen(!cleaned.settings.libraryDir);
       } catch (error) {
         notifyError("加载本地数据失败", error);
       }
@@ -885,6 +889,14 @@ export default function App() {
     const result = await window.fileKb.showInFolder(selectedFile.path);
     if (result.ok) return;
     notifications.show({ title: "打开所在文件夹失败", message: result.message, color: "red" });
+  }
+
+  async function quitApp() {
+    try {
+      await window.fileKb.quitApp();
+    } catch (error) {
+      notifyError("退出应用失败", error);
+    }
   }
 
   async function checkIndexedFiles() {
@@ -1694,6 +1706,10 @@ export default function App() {
               <Menu.Item leftSection={<Settings2 size={16} />} onClick={openRulesModal}>
                 归档规则
               </Menu.Item>
+              <Menu.Divider />
+              <Menu.Item color="red" leftSection={<Power size={16} />} onClick={quitApp}>
+                退出应用
+              </Menu.Item>
             </Menu.Dropdown>
           </Menu>
         </Group>
@@ -2004,6 +2020,28 @@ export default function App() {
           </ScrollArea.Autosize>
           <Group justify="flex-end">
             <Button variant="light" onClick={() => setIntroModalOpen(false)}>关闭</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={libraryGuideOpen}
+        onClose={() => setLibraryGuideOpen(false)}
+        title="先设置知识库目录"
+        centered
+        closeOnClickOutside={false}
+      >
+        <Stack>
+          <Text size="sm">
+            首次使用建议先设置一个知识库目录。后续选择“复制进知识库”或“移动进知识库”时，文件会统一归档到这里。
+          </Text>
+          <Alert color="teal" title="建议先做这一步">
+            先选好知识库目录，再建立分类和导入文件，后面的归档、扫描和索引会更顺。
+          </Alert>
+          <TextInput label="当前目录" value={data.settings.libraryDir || "未设置"} readOnly />
+          <Group justify="flex-end">
+            <Button variant="light" onClick={() => setLibraryGuideOpen(false)}>稍后再说</Button>
+            <Button leftSection={<FolderOpen size={16} />} onClick={chooseLibraryDir}>选择知识库目录</Button>
           </Group>
         </Stack>
       </Modal>

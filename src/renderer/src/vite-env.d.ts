@@ -82,6 +82,10 @@ type ShellResult = {
   message: string;
 };
 
+type ActionResult = {
+  ok: boolean;
+};
+
 type StorageStats = {
   dataPath: string;
   dataSize: number;
@@ -180,5 +184,6 @@ interface Window {
     getContentIndex: (fileId: string) => Promise<ContentIndexDetail>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
+    quitApp: () => Promise<ActionResult>;
   };
 }
