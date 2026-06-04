@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const initSqlJs = require("sql.js/dist/sql-asm.js");
 const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
@@ -84,6 +85,20 @@ const OCR_NOISE_PATTERNS = [
   "Error attempting to read image"
 ];
 const OCR_PDF_PAGE_LIMIT = 20;
+const PDF_PARSE_WORKER_PATH = path.join(
+  __dirname,
+  "..",
+  "node_modules",
+  "pdf-parse",
+  "dist",
+  "pdf-parse",
+  "cjs",
+  "pdf.worker.mjs"
+);
+
+if (typeof PDFParse.setWorker === "function" && fs.existsSync(PDF_PARSE_WORKER_PATH)) {
+  PDFParse.setWorker(pathToFileURL(PDF_PARSE_WORKER_PATH).href);
+}
 
 let SQLPromise;
 
