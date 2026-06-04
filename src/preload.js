@@ -8,7 +8,6 @@ contextBridge.exposeInMainWorld("fileKb", {
   restore: () => ipcRenderer.invoke("store:restore"),
   chooseFiles: () => ipcRenderer.invoke("files:choose"),
   chooseDirectory: () => ipcRenderer.invoke("dirs:choose"),
-  watchLibrary: (payload) => ipcRenderer.invoke("library:watch", payload),
   syncCategoryFolders: (payload) => ipcRenderer.invoke("dirs:sync-category-folders", payload),
   importToLibrary: (payload) => ipcRenderer.invoke("files:import-to-library", payload),
   relocateLibraryFile: (payload) => ipcRenderer.invoke("files:relocate-library-file", payload),
@@ -21,16 +20,6 @@ contextBridge.exposeInMainWorld("fileKb", {
     const listener = (_event, progress) => callback(progress);
     ipcRenderer.on("content:ocr-progress", listener);
     return () => ipcRenderer.removeListener("content:ocr-progress", listener);
-  },
-  onLibraryWatchStatus: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on("library:watch-status", listener);
-    return () => ipcRenderer.removeListener("library:watch-status", listener);
-  },
-  onLibraryWatchChange: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on("library:watch-change", listener);
-    return () => ipcRenderer.removeListener("library:watch-change", listener);
   },
   searchContent: (query) => ipcRenderer.invoke("content:search", query),
   contentTextByFileIds: (fileIds) => ipcRenderer.invoke("content:text-by-file-ids", fileIds),

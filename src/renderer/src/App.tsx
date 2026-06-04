@@ -242,8 +242,6 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState<OcrProgressState | null>(null);
   const [contentIndexDetail, setContentIndexDetail] = useState<ContentIndexDetail | null>(null);
   const [contentIndexLoading, setContentIndexLoading] = useState(false);
-  const [libraryWatchStatus, setLibraryWatchStatus] = useState<LibraryWatchStatus | null>(null);
-
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
   function contentIndexLabel(file: FileRecord) {
@@ -355,12 +353,6 @@ export default function App() {
     });
   }, []);
 
-  useEffect(() => {
-    return window.fileKb.onLibraryWatchStatus((payload) => {
-      setLibraryWatchStatus(payload);
-    });
-  }, []);
-
   const filteredFiles = useMemo(() => {
     const categoryIds = selectedCategoryId ? [selectedCategoryId, ...descendantsOf(selectedCategoryId)] : [];
     const query = search.toLowerCase().trim();
@@ -460,10 +452,6 @@ export default function App() {
         files: synced.files
       });
     }
-    await window.fileKb.watchLibrary({
-      libraryDir: synced.settings.libraryDir || "",
-      enabled: Boolean(synced.settings.libraryDir)
-    });
     setData(synced);
     return synced;
   }
@@ -473,7 +461,6 @@ export default function App() {
       const libraryDir = await window.fileKb.chooseDirectory();
       if (!libraryDir) return;
       await persist({ ...data, settings: { ...data.settings, libraryDir } });
-      await window.fileKb.watchLibrary({ libraryDir, enabled: true });
       await refreshStorageStats(libraryDir);
       notifications.show({ title: "知识库目录已保存", message: libraryDir, color: "teal" });
     } catch (error) {
@@ -523,10 +510,6 @@ export default function App() {
         const cleaned = withSyncedTags(removeSeededDataIfUnused(loaded));
         setData(cleaned);
         await window.fileKb.save(cleaned);
-        await window.fileKb.watchLibrary({
-          libraryDir: cleaned.settings.libraryDir || "",
-          enabled: Boolean(cleaned.settings.libraryDir)
-        });
       } catch (error) {
         notifyError("加载本地数据失败", error);
       }
@@ -534,53 +517,6 @@ export default function App() {
 
     load();
   }, []);
-
-  useEffect(() => {
-    return window.fileKb.onLibraryWatchChange(async (payload) => {
-      if (!data.settings.libraryDir || payload.libraryDir !== data.settings.libraryDir) return;
-
-      try {
-        const scanResult = await window.fileKb.scanLibrary({
-          libraryDir: data.settings.libraryDir,
-          categories: data.categories
-        });
-        const { nextCategories, newFiles, updatedFiles, newCategoryCount, renamedCategoryCount, renamedFileCount } =
-          buildLibrarySyncResult(data, scanResult);
-        if (!newFiles.length && !newCategoryCount && !renamedCategoryCount && !renamedFileCount) return;
-
-        let indexedNewFiles = newFiles;
-        if (newFiles.length) {
-          try {
-            const indexResults = await window.fileKb.indexTextFiles(newFiles);
-            const resultById = new Map(indexResults.map((result) => [result.id, result]));
-            indexedNewFiles = newFiles.map((file) => {
-              const result = resultById.get(file.id);
-              if (!result) return file;
-              return {
-                ...file,
-                contentIndexStatus: result.status,
-                contentIndexSource: result.source || "text",
-                contentIndexedAt: result.indexedAt,
-                contentIndexError: result.error || undefined
-              };
-            });
-          } catch (error) {
-            notifyError("自动建立新增文件内容索引失败", error);
-          }
-        }
-
-        await persist({ ...data, categories: nextCategories, files: [...indexedNewFiles, ...updatedFiles] });
-        if (indexedNewFiles[0]) setSelectedFileId(indexedNewFiles[0].id);
-        notifications.show({
-          title: "知识库已自动更新",
-          message: `新增 ${newCategoryCount} 个分类，重命名分类 ${renamedCategoryCount} 个，新增文件 ${indexedNewFiles.length} 个，更新文件 ${renamedFileCount} 个`,
-          color: "teal"
-        });
-      } catch (error) {
-        notifyError("自动扫描知识库失败", error);
-      }
-    });
-  }, [data]);
 
   useEffect(() => {
     if (!selectedFile) {
@@ -1701,16 +1637,6 @@ export default function App() {
                 </Stack>
               </Paper>
             )}
-            {libraryWatchStatus?.active && (
-              <Paper p="sm" withBorder>
-                <Group justify="space-between" gap="sm">
-                  <Text size="sm" fw={700}>知识库监听中</Text>
-                  <Badge variant="light" color={libraryWatchStatus.pending ? "orange" : "teal"}>
-                    {libraryWatchStatus.pending ? "检测到变更" : "已启用"}
-                  </Badge>
-                </Group>
-              </Paper>
-            )}
             <ScrollArea className="fileScroll">
               <Stack gap="sm">
                 {!filteredFiles.length ? (
@@ -1947,7 +1873,7 @@ export default function App() {
             readOnly
           />
           <Text size="xs" c="dimmed">
-            目录监听：{libraryWatchStatus?.active ? (libraryWatchStatus.pending ? "检测到变化，等待自动扫描" : "已启用") : "未启用"}
+            目录监听：已关闭
           </Text>
           <Select
             label="OCR 语言"

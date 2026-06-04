@@ -350,16 +350,8 @@ ipcMain.handle("store:load", () => store.load());
 ipcMain.handle("store:save", (_event, data) => store.save(data));
 
 ipcMain.handle("library:watch", async (_event, payload) => {
-  const libraryDir = payload?.libraryDir || "";
-  const enabled = payload?.enabled !== false;
-
-  if (!enabled || !libraryDir) {
-    stopLibraryWatcher();
-    return { active: false, libraryDir: "" };
-  }
-
-  startLibraryWatcher(libraryDir);
-  return { active: true, libraryDir };
+  stopLibraryWatcher();
+  return { active: false, libraryDir: "" };
 });
 
 ipcMain.handle("store:stats", async (_event, payload) => {
