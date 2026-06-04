@@ -200,6 +200,24 @@ body {
   color: inherit;
 }
 
+.introHero {
+  background: linear-gradient(180deg, #f6fbfa 0%, #ffffff 100%);
+  border-color: #dce9e5;
+}
+
+.introSection {
+  border-color: #e6e9ef;
+}
+
+.introDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: #0f766e;
+}
+
 .detailPane {
   height: calc(100vh - 72px);
   overflow: auto;

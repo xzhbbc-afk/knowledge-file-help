@@ -29,6 +29,7 @@ import {
   FilePlus,
   FolderOpen,
   HardDrive,
+  CircleHelp,
   ScanText,
   Pencil,
   Plus,
@@ -96,6 +97,12 @@ type LibrarySyncResult = {
   renamedFileCount: number;
 };
 
+type IntroSection = {
+  title: string;
+  summary: string;
+  points: string[];
+};
+
 const emptyStore: FileKbStoreData = {
   categories: [],
   files: [],
@@ -107,6 +114,54 @@ const emptyStore: FileKbStoreData = {
     ocrLanguage: "chi_sim+eng"
   }
 };
+
+const introSections: IntroSection[] = [
+  {
+    title: "这个工具能做什么",
+    summary: "把本地文件整理成一个可分类、可检索、可持续补充的个人知识库。",
+    points: [
+      "支持多级分类，适合按报告、标准、项目、资料类型持续整理。",
+      "支持标签、备注和归档规则，便于后续查找和沉淀知识。",
+      "文件可以只建索引，也可以复制或移动进知识库目录统一管理。"
+    ]
+  },
+  {
+    title: "日常使用流程",
+    summary: "先定目录和分类，再导入文件，最后补充标签和备注，形成长期可维护的索引。",
+    points: [
+      "先在“知识库目录”里选一个目录，用来存放复制或移动进来的文件。",
+      "在左侧建立分类层级，分类本身也可以写备注，用来记录目录用途。",
+      "导入文件后，可以继续修改分类、标签、备注，也可以手动扫描知识库补录文件。"
+    ]
+  },
+  {
+    title: "搜索和索引",
+    summary: "搜索不仅查文件名，也会查备注、标签和已建立的内容索引。",
+    points: [
+      "全文索引适合文本类文件，支持当前分类范围内搜索。",
+      "图片和扫描版 PDF 可以建立 OCR 索引，用识别后的文字参与搜索。",
+      "点开右侧“查看”可以直接看到当前文件被索引到的文本内容。"
+    ]
+  },
+  {
+    title: "归档和分类规则",
+    summary: "规则的作用是给文件自动推荐分类和标签，减少重复录入。",
+    points: [
+      "规则按关键词命中，可用于导入时自动推荐分类和标签。",
+      "未手动指定分类时，导入流程可以按规则自动补上分类建议。",
+      "已经进入知识库的文件，在你修改分类后，也会同步移动到对应目录。"
+    ]
+  },
+  {
+    title: "当前这一版的边界",
+    summary: "这一版优先解决本地文件整理、索引和检索，能力收得比较克制。",
+    points: [
+      "自动目录监听目前已关闭，新增文件需要手动点“扫描知识库”。",
+      "OCR 适合做检索辅助，识别结果可能有错字，不适合当原文替代品。",
+      "知识点关联、AI 总结、版本发布和自动更新还没有接入正式流程。"
+    ]
+  }
+];
 
 function makeId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -229,6 +284,7 @@ export default function App() {
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [ruleDrafts, setRuleDrafts] = useState<RuleRecord[]>([]);
   const [ruleScopeDraft, setRuleScopeDraft] = useState<ArchiveRuleScope>("root");
+  const [introModalOpen, setIntroModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -1555,6 +1611,9 @@ export default function App() {
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
         <Group gap="sm" wrap="nowrap">
+          <Button variant="light" leftSection={<CircleHelp size={16} />} onClick={() => setIntroModalOpen(true)}>
+            功能介绍
+          </Button>
           <Button
             variant="light"
             leftSection={<HardDrive size={16} />}
@@ -1860,6 +1919,44 @@ export default function App() {
           <Group justify="flex-end">
             <Button variant="light" onClick={() => setCategoryModalOpen(false)}>取消</Button>
             <Button onClick={saveCategory}>保存</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={introModalOpen} onClose={() => setIntroModalOpen(false)} title="功能介绍" size="xl">
+        <Stack gap="md">
+          <Paper p="md" withBorder className="introHero">
+            <Stack gap={6}>
+              <Title order={4}>本地文件知识库</Title>
+              <Text size="sm" c="dimmed">
+                这一版的核心目标，是把散落在本地的文件整理成一个可分类、可检索、可补充备注的个人知识库。
+              </Text>
+            </Stack>
+          </Paper>
+          <ScrollArea.Autosize mah={560} offsetScrollbars>
+            <Stack gap="sm" pr="xs">
+              {introSections.map((section) => (
+                <Paper key={section.title} p="md" withBorder className="introSection">
+                  <Stack gap={8}>
+                    <div>
+                      <Text fw={800}>{section.title}</Text>
+                      <Text size="sm" c="dimmed">{section.summary}</Text>
+                    </div>
+                    <Stack gap={6}>
+                      {section.points.map((point) => (
+                        <Group key={point} align="flex-start" wrap="nowrap" gap="xs">
+                          <div className="introDot" />
+                          <Text size="sm">{point}</Text>
+                        </Group>
+                      ))}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          </ScrollArea.Autosize>
+          <Group justify="flex-end">
+            <Button variant="light" onClick={() => setIntroModalOpen(false)}>关闭</Button>
           </Group>
         </Stack>
       </Modal>
