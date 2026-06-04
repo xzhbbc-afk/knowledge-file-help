@@ -1,6 +1,8 @@
 const path = require("path");
 const fs = require("fs");
 const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, shell } = require("electron");
+const { autoUpdater } = require("electron-updater");
+const log = require("electron-log");
 const { createStore } = require("./store");
 
 let mainWindow;
@@ -14,6 +16,12 @@ let ocrCancelRequested = false;
 let libraryWatcherSuppressUntil = 0;
 let isQuitting = false;
 let trayNoticeShown = false;
+let updateState = null;
+
+log.transports.file.level = "info";
+autoUpdater.logger = log;
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
 
 function resolveAssetPath(...parts) {
   return path.join(__dirname, "..", ...parts);
@@ -231,6 +239,129 @@ function sendToRenderer(channel, payload) {
   }
 }
 
+function githubPublishConfig() {
+  try {
+    const packageJson = require(resolveAssetPath("package.json"));
+    const publish = packageJson?.build?.publish;
+    const entries = Array.isArray(publish) ? publish : publish ? [publish] : [];
+    return entries.find((entry) => entry?.provider === "github") || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function updateSupportError() {
+  if (!app.isPackaged) {
+    return "开发环境不支持检查更新，请使用安装包或打包后的版本验证。";
+  }
+  const publish = githubPublishConfig();
+  if (!publish?.owner || !publish?.repo) {
+    return "请先在 package.json 的 build.publish 中配置 GitHub Releases 的 owner 和 repo。";
+  }
+  return "";
+}
+
+function initialUpdateState() {
+  const publish = githubPublishConfig();
+  const supportError = updateSupportError();
+  return {
+    supported: !supportError,
+    currentVersion: app.getVersion(),
+    latestVersion: "",
+    releaseName: "",
+    status: supportError ? "unsupported" : "idle",
+    message: supportError,
+    checking: false,
+    downloading: false,
+    downloaded: false,
+    progress: 0,
+    hasUpdate: false,
+    owner: publish?.owner || "",
+    repo: publish?.repo || ""
+  };
+}
+
+function updateUpdateState(patch) {
+  updateState = { ...(updateState || initialUpdateState()), ...patch };
+  sendToRenderer("app:update-status", updateState);
+  return updateState;
+}
+
+function setupAutoUpdater() {
+  updateState = initialUpdateState();
+
+  autoUpdater.on("checking-for-update", () => {
+    updateUpdateState({
+      status: "checking",
+      message: "正在检查更新...",
+      checking: true,
+      downloading: false,
+      progress: 0
+    });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    updateUpdateState({
+      status: "available",
+      message: "发现新版本，可以选择下载更新。",
+      checking: false,
+      downloading: false,
+      downloaded: false,
+      hasUpdate: true,
+      latestVersion: info?.version || "",
+      releaseName: info?.releaseName || ""
+    });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    updateUpdateState({
+      status: "not-available",
+      message: "当前已经是最新版。",
+      checking: false,
+      downloading: false,
+      downloaded: false,
+      hasUpdate: false,
+      latestVersion: "",
+      releaseName: "",
+      progress: 0
+    });
+  });
+
+  autoUpdater.on("error", (error) => {
+    updateUpdateState({
+      status: "error",
+      message: error?.message || String(error || "检查更新失败"),
+      checking: false,
+      downloading: false
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    updateUpdateState({
+      status: "downloading",
+      message: "正在下载更新...",
+      checking: false,
+      downloading: true,
+      downloaded: false,
+      progress: Number(progress?.percent || 0)
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    updateUpdateState({
+      status: "downloaded",
+      message: "更新已下载完成，可以重启安装。",
+      checking: false,
+      downloading: false,
+      downloaded: true,
+      hasUpdate: true,
+      progress: 100,
+      latestVersion: info?.version || updateState?.latestVersion || "",
+      releaseName: info?.releaseName || updateState?.releaseName || ""
+    });
+  });
+}
+
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (!mainWindow.isVisible()) mainWindow.show();
@@ -374,6 +505,7 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   store = await createStore(app.getPath("userData"));
+  setupAutoUpdater();
   createTray();
   createWindow();
   globalShortcut.register("F12", () => {
@@ -662,5 +794,58 @@ ipcMain.handle("files:show", async (_event, filePath) => {
 ipcMain.handle("app:quit", async () => {
   isQuitting = true;
   app.quit();
+  return { ok: true };
+});
+
+ipcMain.handle("app:update-status", async () => {
+  return updateState || initialUpdateState();
+});
+
+ipcMain.handle("app:check-for-updates", async () => {
+  const supportError = updateSupportError();
+  if (supportError) {
+    updateUpdateState({
+      supported: false,
+      status: "unsupported",
+      message: supportError,
+      checking: false,
+      downloading: false
+    });
+    throw new Error(supportError);
+  }
+
+  if (updateState?.checking) {
+    return updateState;
+  }
+
+  await autoUpdater.checkForUpdates();
+  return updateState || initialUpdateState();
+});
+
+ipcMain.handle("app:download-update", async () => {
+  const supportError = updateSupportError();
+  if (supportError) {
+    updateUpdateState({
+      supported: false,
+      status: "unsupported",
+      message: supportError
+    });
+    throw new Error(supportError);
+  }
+
+  if (updateState?.downloading || updateState?.downloaded) {
+    return updateState;
+  }
+
+  await autoUpdater.downloadUpdate();
+  return updateState || initialUpdateState();
+});
+
+ipcMain.handle("app:quit-and-install-update", async () => {
+  if (!updateState?.downloaded) {
+    throw new Error("更新尚未下载完成。");
+  }
+  isQuitting = true;
+  autoUpdater.quitAndInstall();
   return { ok: true };
 });

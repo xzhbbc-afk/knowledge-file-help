@@ -44,7 +44,8 @@ import {
   Eye,
   X,
   Ellipsis,
-  Power
+  Power,
+  Download
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import appLogo from "../../../assets/local-knowledge-logo.png";
@@ -90,6 +91,22 @@ type OcrProgressState = {
   total?: number;
   status?: string;
   progress?: number;
+};
+
+const emptyUpdateStatus: UpdateStatusPayload = {
+  supported: true,
+  currentVersion: "",
+  latestVersion: "",
+  releaseName: "",
+  status: "idle",
+  message: "",
+  checking: false,
+  downloading: false,
+  downloaded: false,
+  progress: 0,
+  hasUpdate: false,
+  owner: "",
+  repo: ""
 };
 
 type LibrarySyncResult = {
@@ -308,6 +325,8 @@ export default function App() {
   const [ruleScopeDraft, setRuleScopeDraft] = useState<ArchiveRuleScope>("root");
   const [introModalOpen, setIntroModalOpen] = useState(false);
   const [libraryGuideOpen, setLibraryGuideOpen] = useState(false);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusPayload>(emptyUpdateStatus);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -597,6 +616,28 @@ export default function App() {
     }
 
     load();
+  }, []);
+
+  useEffect(() => {
+    let canceled = false;
+
+    async function loadUpdateStatus() {
+      try {
+        const current = await window.fileKb.getUpdateStatus();
+        if (!canceled) setUpdateStatus(current);
+      } catch (_error) {
+      }
+    }
+
+    loadUpdateStatus();
+    const unsubscribe = window.fileKb.onUpdateStatus((payload) => {
+      if (!canceled) setUpdateStatus(payload);
+    });
+
+    return () => {
+      canceled = true;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -896,6 +937,33 @@ export default function App() {
       await window.fileKb.quitApp();
     } catch (error) {
       notifyError("退出应用失败", error);
+    }
+  }
+
+  async function openUpdateModalAndCheck() {
+    setUpdateModalOpen(true);
+    if (["checking", "downloading", "available", "downloaded", "unsupported"].includes(updateStatus.status)) return;
+
+    try {
+      await window.fileKb.checkForUpdates();
+    } catch (error) {
+      notifyError("检查更新失败", error);
+    }
+  }
+
+  async function downloadUpdatePackage() {
+    try {
+      await window.fileKb.downloadUpdate();
+    } catch (error) {
+      notifyError("下载更新失败", error);
+    }
+  }
+
+  async function quitAndInstallUpdate() {
+    try {
+      await window.fileKb.quitAndInstallUpdate();
+    } catch (error) {
+      notifyError("安装更新失败", error);
     }
   }
 
@@ -1706,6 +1774,9 @@ export default function App() {
               <Menu.Item leftSection={<Settings2 size={16} />} onClick={openRulesModal}>
                 归档规则
               </Menu.Item>
+              <Menu.Item leftSection={<RefreshCw size={16} />} onClick={openUpdateModalAndCheck}>
+                检查更新
+              </Menu.Item>
               <Menu.Divider />
               <Menu.Item color="red" leftSection={<Power size={16} />} onClick={quitApp}>
                 退出应用
@@ -2042,6 +2113,94 @@ export default function App() {
           <Group justify="flex-end">
             <Button variant="light" onClick={() => setLibraryGuideOpen(false)}>稍后再说</Button>
             <Button leftSection={<FolderOpen size={16} />} onClick={chooseLibraryDir}>选择知识库目录</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={updateModalOpen} onClose={() => setUpdateModalOpen(false)} title="检查更新" size="md">
+        <Stack>
+          <Paper p="sm" withBorder>
+            <Stack gap={6}>
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">当前版本</Text>
+                <Text size="sm" fw={800}>{updateStatus.currentVersion || "未读取"}</Text>
+              </Group>
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">最新版本</Text>
+                <Text size="sm" fw={800}>{updateStatus.latestVersion || "尚未检查"}</Text>
+              </Group>
+              {updateStatus.releaseName && (
+                <Group justify="space-between">
+                  <Text size="sm" c="dimmed">发布名称</Text>
+                  <Text size="sm" fw={800}>{updateStatus.releaseName}</Text>
+                </Group>
+              )}
+              {updateStatus.owner && updateStatus.repo && (
+                <Text size="xs" c="dimmed" className="pathText">
+                  发布源：{updateStatus.owner}/{updateStatus.repo}
+                </Text>
+              )}
+            </Stack>
+          </Paper>
+
+          <Alert
+            color={
+              updateStatus.status === "error" || updateStatus.status === "unsupported"
+                ? "red"
+                : updateStatus.status === "available" || updateStatus.status === "downloaded"
+                  ? "teal"
+                  : "blue"
+            }
+            title={
+              updateStatus.status === "unsupported"
+                ? "更新未启用"
+                : updateStatus.status === "available"
+                  ? "发现新版本"
+                  : updateStatus.status === "downloaded"
+                    ? "更新已下载"
+                    : updateStatus.status === "not-available"
+                      ? "当前已是最新版"
+                      : updateStatus.status === "downloading"
+                        ? "正在下载更新"
+                        : updateStatus.status === "error"
+                          ? "更新失败"
+                          : "检查更新"
+            }
+          >
+            {updateStatus.message || "点击下方按钮检查更新。"}
+          </Alert>
+
+          {(updateStatus.checking || updateStatus.downloading || updateStatus.downloaded) && (
+            <Stack gap={6}>
+              <Progress value={updateStatus.status === "downloaded" ? 100 : Math.max(updateStatus.progress || 0, updateStatus.checking ? 18 : 0)} />
+              <Group justify="space-between">
+                <Text size="xs" c="dimmed">
+                  {updateStatus.downloading ? "下载进度" : updateStatus.checking ? "正在检查发布信息" : "更新包已下载完成"}
+                </Text>
+                <Text size="xs" fw={700}>
+                  {updateStatus.status === "downloaded" ? "100%" : `${Math.round(updateStatus.progress || 0)}%`}
+                </Text>
+              </Group>
+            </Stack>
+          )}
+
+          <Group justify="flex-end">
+            <Button variant="light" onClick={() => setUpdateModalOpen(false)}>关闭</Button>
+            {updateStatus.status !== "checking" && updateStatus.status !== "downloading" && updateStatus.status !== "downloaded" && (
+              <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={openUpdateModalAndCheck}>
+                重新检查
+              </Button>
+            )}
+            {updateStatus.status === "available" && (
+              <Button leftSection={<Download size={16} />} onClick={downloadUpdatePackage}>
+                下载更新
+              </Button>
+            )}
+            {updateStatus.status === "downloaded" && (
+              <Button color="teal" leftSection={<Power size={16} />} onClick={quitAndInstallUpdate}>
+                重启安装
+              </Button>
+            )}
           </Group>
         </Stack>
       </Modal>

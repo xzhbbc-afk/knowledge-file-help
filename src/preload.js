@@ -26,5 +26,14 @@ contextBridge.exposeInMainWorld("fileKb", {
   getContentIndex: (fileId) => ipcRenderer.invoke("content:get-index", fileId),
   openFile: (filePath) => ipcRenderer.invoke("files:open", filePath),
   showInFolder: (filePath) => ipcRenderer.invoke("files:show", filePath),
-  quitApp: () => ipcRenderer.invoke("app:quit")
+  quitApp: () => ipcRenderer.invoke("app:quit"),
+  getUpdateStatus: () => ipcRenderer.invoke("app:update-status"),
+  checkForUpdates: () => ipcRenderer.invoke("app:check-for-updates"),
+  downloadUpdate: () => ipcRenderer.invoke("app:download-update"),
+  quitAndInstallUpdate: () => ipcRenderer.invoke("app:quit-and-install-update"),
+  onUpdateStatus: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("app:update-status", listener);
+    return () => ipcRenderer.removeListener("app:update-status", listener);
+  }
 });

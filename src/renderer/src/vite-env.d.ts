@@ -86,6 +86,32 @@ type ActionResult = {
   ok: boolean;
 };
 
+type UpdateStatus =
+  | "idle"
+  | "unsupported"
+  | "checking"
+  | "available"
+  | "not-available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+type UpdateStatusPayload = {
+  supported: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  releaseName: string;
+  status: UpdateStatus;
+  message: string;
+  checking: boolean;
+  downloading: boolean;
+  downloaded: boolean;
+  progress: number;
+  hasUpdate: boolean;
+  owner: string;
+  repo: string;
+};
+
 type StorageStats = {
   dataPath: string;
   dataSize: number;
@@ -185,5 +211,10 @@ interface Window {
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
     quitApp: () => Promise<ActionResult>;
+    getUpdateStatus: () => Promise<UpdateStatusPayload>;
+    checkForUpdates: () => Promise<UpdateStatusPayload>;
+    downloadUpdate: () => Promise<UpdateStatusPayload>;
+    quitAndInstallUpdate: () => Promise<ActionResult>;
+    onUpdateStatus: (callback: (payload: UpdateStatusPayload) => void) => () => void;
   };
 }
