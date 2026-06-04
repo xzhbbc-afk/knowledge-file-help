@@ -55,7 +55,9 @@ const seededCategoryIds = new Set([
 ]);
 const seededRuleIds = new Set(["rule_water", "rule_air", "rule_noise"]);
 const seededTags = new Set(["废水", "废气", "噪声", "固废", "报告", "标准", "项目"]);
-const ocrImageExts = new Set(["png", "jpg", "jpeg", "webp", "bmp"]);
+const ocrEnabledExts = new Set(["png", "jpg", "jpeg", "webp", "bmp", "pdf"]);
+const latinTokenPattern = /[a-z0-9_]{2,}/g;
+const cjkSequencePattern = /[\u3400-\u9fff]+/g;
 
 type CategoryDraft = {
   id: string;
@@ -150,7 +152,49 @@ function notifyError(title: string, error: unknown) {
 function normalizeOcrError(message: string) {
   if (message.includes("Error attempting to read image")) return "图片无法识别，可能是文件损坏、格式异常，或并非有效图片。";
   if (message.includes("OCR 已取消")) return "OCR 已取消";
+  if (message.includes("未从 PDF 图片页中识别到文本")) return "PDF 已完成识别，但没有提取到可用文字。";
   return message;
+}
+
+function queryTokens(value: string) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return [];
+
+  const tokens = new Set<string>();
+  tokens.add(text);
+  (text.match(latinTokenPattern) || []).forEach((token) => tokens.add(token));
+  (text.match(cjkSequencePattern) || []).forEach((sequence) => {
+    if (sequence.length === 1) {
+      tokens.add(sequence);
+      return;
+    }
+    for (let index = 0; index < sequence.length - 1; index += 1) {
+      tokens.add(sequence.slice(index, index + 2));
+    }
+  });
+
+  return [...tokens].sort((a, b) => b.length - a.length);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function highlightedTextParts(value: string, query: string) {
+  const text = String(value || "");
+  const tokens = queryTokens(query).filter(Boolean);
+
+  if (!text || !tokens.length) return text;
+
+  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "ig");
+  const parts = text.split(pattern);
+
+  return parts.filter(Boolean).map((part, index) => {
+    const matched = tokens.some((token) => part.toLowerCase() === token.toLowerCase());
+    return matched
+      ? <mark key={`${part}_${index}`} className="searchMark">{part}</mark>
+      : <span key={`${part}_${index}`}>{part}</span>;
+  });
 }
 
 export default function App() {
@@ -306,16 +350,36 @@ export default function App() {
 
   const filteredFiles = useMemo(() => {
     const categoryIds = selectedCategoryId ? [selectedCategoryId, ...descendantsOf(selectedCategoryId)] : [];
-    const query = search.toLowerCase();
+    const query = search.toLowerCase().trim();
     const contentMatchedIds = new Set(contentMatches.map((match) => match.fileId));
-
-    return data.files.filter((file) => {
+    const contentMatchScore = new Map(contentMatches.map((match) => [match.fileId, match.hitCount || 0]));
+    const items = data.files.filter((file) => {
       const matchesCategory = !categoryIds.length || categoryIds.includes(file.categoryId);
       if (!matchesCategory) return false;
       const matchesTag = !tagFilter || file.tags.includes(tagFilter);
       const haystack = [file.name, file.ext, file.note, categoryPath(file.categoryId), ...file.tags].join(" ").toLowerCase();
       const matchesSearch = !query || haystack.includes(query) || contentMatchedIds.has(file.id);
       return matchesTag && matchesSearch;
+    });
+
+    if (!query) return items;
+
+    return [...items].sort((left, right) => {
+      const leftMatch = contentMatchScore.get(left.id) || 0;
+      const rightMatch = contentMatchScore.get(right.id) || 0;
+      if (leftMatch !== rightMatch) return rightMatch - leftMatch;
+
+      const leftName = left.name.toLowerCase();
+      const rightName = right.name.toLowerCase();
+      const leftNameExact = leftName.includes(query) ? 1 : 0;
+      const rightNameExact = rightName.includes(query) ? 1 : 0;
+      if (leftNameExact !== rightNameExact) return rightNameExact - leftNameExact;
+
+      const leftNote = left.note.toLowerCase().includes(query) ? 1 : 0;
+      const rightNote = right.note.toLowerCase().includes(query) ? 1 : 0;
+      if (leftNote !== rightNote) return rightNote - leftNote;
+
+      return new Date(right.importedAt).getTime() - new Date(left.importedAt).getTime();
     });
   }, [data.files, selectedCategoryId, search, tagFilter, data.categories, contentMatches]);
 
@@ -1022,9 +1086,9 @@ export default function App() {
     if (ocrRunning) return;
     try {
       const sourceFiles = Array.isArray(targetFiles) ? targetFiles : data.files;
-      const candidates = sourceFiles.filter((file) => ocrImageExts.has(String(file.ext || "").toLowerCase()));
+      const candidates = sourceFiles.filter((file) => ocrEnabledExts.has(String(file.ext || "").toLowerCase()));
       if (!candidates.length) {
-        notifications.show({ title: "没有图片", message: "当前没有可进行 OCR 的图片文件。", color: "gray" });
+        notifications.show({ title: "没有可识别文件", message: "当前没有可进行 OCR 的图片或 PDF 文件。", color: "gray" });
         return;
       }
 
@@ -1490,7 +1554,7 @@ export default function App() {
                   </Group>
                   <Progress value={ocrOverallPercent()} color="violet" />
                   <Text size="xs" c="dimmed" truncate>
-                    {ocrProgress?.fileName || "准备识别图片"} · {ocrProgress?.status || "准备 OCR"} · {ocrOverallPercent()}%
+                    {ocrProgress?.fileName || "准备识别文件"} · {ocrProgress?.status || "准备 OCR"} · {ocrOverallPercent()}%
                   </Text>
                 </Stack>
               </Paper>
@@ -1530,7 +1594,7 @@ export default function App() {
                       />
                       <div className="fileExt">{(file.ext || "FILE").slice(0, 4).toUpperCase()}</div>
                       <Stack gap={5} className="fileCardBody">
-                        <Text fw={800} truncate>{file.name}</Text>
+                        <Text fw={800} truncate>{highlightedTextParts(file.name, search)}</Text>
                         <Text size="sm" c="dimmed">{categoryPath(file.categoryId)} · {formatSize(file.size)}</Text>
                         <Group gap={6}>
                           {file.missing && <Badge variant="light" color="red">文件丢失</Badge>}
@@ -1542,7 +1606,7 @@ export default function App() {
                         </Group>
                         {contentMatch && (
                           <Text size="xs" c="dimmed" lineClamp={2}>
-                            {contentMatch.snippet}
+                            {highlightedTextParts(contentMatch.snippet, search)}
                           </Text>
                         )}
                       </Stack>
@@ -1683,7 +1747,7 @@ export default function App() {
                 </Stack>
                 <Group gap="sm">
                   <Button leftSection={<Save size={16} />} onClick={saveDetail}>保存修改</Button>
-                  {ocrImageExts.has(String(selectedFile.ext || "").toLowerCase()) && (
+                  {ocrEnabledExts.has(String(selectedFile.ext || "").toLowerCase()) && (
                     ocrRunning ? (
                       <Button variant="light" color="red" leftSection={<Square size={16} />} onClick={cancelOcr}>
                         取消 OCR

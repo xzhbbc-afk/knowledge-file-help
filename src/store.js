@@ -5,6 +5,7 @@ const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
 const XLSX = require("xlsx");
 const { PDFParse } = require("pdf-parse");
+const { createCanvas } = require("@napi-rs/canvas");
 const { createWorker } = require("tesseract.js");
 
 const defaultData = {
@@ -67,10 +68,22 @@ const PLAIN_TEXT_EXTS = new Set([
 const OFFICE_TEXT_EXTS = new Set(["doc", "docx", "xlsx", "xls"]);
 const PDF_TEXT_EXTS = new Set(["pdf"]);
 const OCR_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "bmp"]);
+const OCR_DOCUMENT_EXTS = new Set(["pdf"]);
+const OCR_SUPPORTED_EXTS = new Set([...OCR_IMAGE_EXTS, ...OCR_DOCUMENT_EXTS]);
 const SUPPORTED_TEXT_EXTS = new Set([...PLAIN_TEXT_EXTS, ...OFFICE_TEXT_EXTS, ...PDF_TEXT_EXTS]);
 const wordExtractor = new WordExtractor();
 const LATIN_TOKEN_PATTERN = /[a-z0-9_]{2,}/g;
 const CJK_SEQUENCE_PATTERN = /[\u3400-\u9fff]+/g;
+const OCR_NOISE_PATTERNS = [
+  "TESSDATA_PREFIX",
+  "Failed loading language",
+  "Error opening data file",
+  "Error in pixRead",
+  "Image file /input cannot be read!",
+  "Object unexpectedly",
+  "Error attempting to read image"
+];
+const OCR_PDF_PAGE_LIMIT = 20;
 
 let SQLPromise;
 
@@ -173,17 +186,40 @@ async function extractContentText(file) {
   throw new Error("暂不支持该文件类型");
 }
 
-async function extractOcrText(file, options = {}) {
-  const ext = String(file.ext || "").toLowerCase();
-  if (!OCR_IMAGE_EXTS.has(ext)) throw new Error("暂不支持该图片类型");
-  if (!file.path || !fs.existsSync(file.path)) throw new Error("文件不存在");
+function withSuppressedOcrLogs(task) {
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  const shouldSuppress = (chunk) => {
+    const text = String(chunk || "");
+    return OCR_NOISE_PATTERNS.some((pattern) => text.includes(pattern));
+  };
 
-  const stats = fs.statSync(file.path);
-  if (stats.size > OCR_FILE_SIZE_LIMIT) {
-    throw new Error(`图片超过 ${Math.round(OCR_FILE_SIZE_LIMIT / 1024 / 1024)}MB，暂不进行 OCR`);
-  }
+  process.stdout.write = ((chunk, encoding, callback) => {
+    if (shouldSuppress(chunk)) {
+      if (typeof callback === "function") callback();
+      return true;
+    }
+    return originalStdoutWrite(chunk, encoding, callback);
+  });
 
-  const worker = await createWorker(options.language || OCR_LANG_CODE, 1, {
+  process.stderr.write = ((chunk, encoding, callback) => {
+    if (shouldSuppress(chunk)) {
+      if (typeof callback === "function") callback();
+      return true;
+    }
+    return originalStderrWrite(chunk, encoding, callback);
+  });
+
+  return Promise.resolve()
+    .then(task)
+    .finally(() => {
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
+    });
+}
+
+async function createOcrWorker(file, options = {}) {
+  return createWorker(options.language || OCR_LANG_CODE, 1, {
     langPath: options.langPath,
     cachePath: options.cachePath,
     gzip: true,
@@ -202,13 +238,120 @@ async function extractOcrText(file, options = {}) {
       }
     }
   });
+}
+
+async function recognizeWithWorker(worker, input) {
+  return withSuppressedOcrLogs(async () => {
+    const result = await worker.recognize(input);
+    return String(result?.data?.text || "");
+  });
+}
+
+async function renderPdfPagesForOcr(file, options = {}) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const data = new Uint8Array(fs.readFileSync(file.path));
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true
+  });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const pageCount = Math.min(pdf.numPages || 0, OCR_PDF_PAGE_LIMIT);
+    const renderedPages = [];
+
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      if (typeof options.isCanceled === "function" && options.isCanceled()) {
+        throw new Error("OCR 已取消");
+      }
+
+      if (typeof options.onProgress === "function") {
+        options.onProgress({
+          fileId: file.id,
+          fileName: file.name,
+          status: `渲染 PDF 第 ${pageIndex + 1} 页`,
+          progress: pageCount ? pageIndex / pageCount : 0
+        });
+      }
+
+      const page = await pdf.getPage(pageIndex + 1);
+      const viewport = page.getViewport({ scale: 1.6 });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      const context = canvas.getContext("2d");
+      await page.render({
+        canvasContext: context,
+        viewport
+      }).promise;
+      renderedPages.push({
+        pageNumber: pageIndex + 1,
+        image: canvas.toBuffer("image/png")
+      });
+    }
+
+    return renderedPages;
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
+async function extractOcrText(file, options = {}) {
+  const ext = String(file.ext || "").toLowerCase();
+  if (!OCR_SUPPORTED_EXTS.has(ext)) throw new Error("暂不支持 OCR 的文件类型");
+  if (!file.path || !fs.existsSync(file.path)) throw new Error("文件不存在");
+
+  const stats = fs.statSync(file.path);
+  if (OCR_IMAGE_EXTS.has(ext) && stats.size > OCR_FILE_SIZE_LIMIT) {
+    throw new Error(`图片超过 ${Math.round(OCR_FILE_SIZE_LIMIT / 1024 / 1024)}MB，暂不进行 OCR`);
+  }
+
+  const worker = await createOcrWorker(file, options);
 
   try {
     if (typeof options.isCanceled === "function" && options.isCanceled()) {
       throw new Error("OCR 已取消");
     }
-    const result = await worker.recognize(file.path);
-    return String(result?.data?.text || "").slice(0, TEXT_INDEX_LIMIT);
+
+    if (OCR_IMAGE_EXTS.has(ext)) {
+      const text = await recognizeWithWorker(worker, file.path);
+      return String(text || "").slice(0, TEXT_INDEX_LIMIT);
+    }
+
+    if (ext === "pdf") {
+      const pages = await renderPdfPagesForOcr(file, options);
+      const chunks = [];
+
+      for (const [pageIndex, page] of pages.entries()) {
+        if (typeof options.isCanceled === "function" && options.isCanceled()) {
+          throw new Error("OCR 已取消");
+        }
+        if (typeof options.onProgress === "function") {
+          options.onProgress({
+            fileId: file.id,
+            fileName: file.name,
+            status: `OCR 第 ${page.pageNumber} 页`,
+            progress: pages.length ? pageIndex / pages.length : 0
+          });
+        }
+
+        const text = await recognizeWithWorker(worker, page.image);
+        const normalizedText = String(text || "").trim();
+        if (normalizedText) {
+          chunks.push(`[第 ${page.pageNumber} 页]`);
+          chunks.push(normalizedText);
+        }
+
+        if (chunks.join("\n").length >= TEXT_INDEX_LIMIT) break;
+      }
+
+      if (!chunks.length) {
+        throw new Error("未从 PDF 图片页中识别到文本");
+      }
+      return chunks.join("\n").slice(0, TEXT_INDEX_LIMIT);
+    }
+
+    throw new Error("暂不支持 OCR 的文件类型");
   } finally {
     await worker.terminate();
   }
@@ -647,7 +790,7 @@ async function createStore(userDataPath) {
           });
         }
 
-        if (!OCR_IMAGE_EXTS.has(ext)) {
+        if (!OCR_SUPPORTED_EXTS.has(ext)) {
           const indexedAt = new Date().toISOString();
           replaceContentIndex(db, file.id, "skipped", "ocr", indexedAt, "暂不支持 OCR 的文件类型", "");
           results.push({

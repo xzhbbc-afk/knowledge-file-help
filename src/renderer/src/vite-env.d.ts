@@ -124,6 +124,7 @@ type ContentSearchMatch = {
   fileId: string;
   source: ContentIndexSource;
   snippet: string;
+  hitCount?: number;
 };
 
 interface Window {
