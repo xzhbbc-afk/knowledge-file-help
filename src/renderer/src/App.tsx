@@ -324,6 +324,16 @@ export default function App() {
     [contentMatches]
   );
 
+  const failedTextIndexCount = useMemo(
+    () => data.files.filter((file) => file.contentIndexStatus === "failed" && (file.contentIndexSource || "text") === "text").length,
+    [data.files]
+  );
+
+  const failedOcrCount = useMemo(
+    () => data.files.filter((file) => file.contentIndexStatus === "failed" && file.contentIndexSource === "ocr").length,
+    [data.files]
+  );
+
   function withSyncedTags(nextData: FileKbStoreData) {
     const normalized = normalizeStoreData(nextData);
     const tags = new Set(normalized.tags);
@@ -959,6 +969,42 @@ export default function App() {
     }
   }
 
+  async function retryFailedTextIndexes(targetFiles?: FileRecord[]) {
+    try {
+      const sourceFiles = Array.isArray(targetFiles) ? targetFiles : data.files;
+      const candidates = sourceFiles.filter(
+        (file) => file.contentIndexStatus === "failed" && (file.contentIndexSource || "text") === "text"
+      );
+      if (!candidates.length) {
+        notifications.show({ title: "没有失败项", message: "当前没有可重试的全文索引失败文件。", color: "gray" });
+        return;
+      }
+
+      const results = await window.fileKb.indexTextFiles(candidates);
+      const resultById = new Map(results.map((result) => [result.id, result]));
+      const nextFiles = data.files.map((file) => {
+        const result = resultById.get(file.id);
+        if (!result) return file;
+        return {
+          ...file,
+          contentIndexStatus: result.status,
+          contentIndexSource: result.source || "text",
+          contentIndexedAt: result.indexedAt,
+          contentIndexError: result.error || undefined
+        };
+      });
+
+      await persist({ ...data, files: nextFiles });
+      notifications.show({
+        title: "全文索引重试完成",
+        message: `处理 ${results.length} 个失败文件`,
+        color: "teal"
+      });
+    } catch (error) {
+      notifyError("重试全文索引失败", error);
+    }
+  }
+
   async function loadSelectedContentIndex() {
     if (!selectedFile) return;
     try {
@@ -1025,6 +1071,49 @@ export default function App() {
       notifications.show({ title: "已请求取消", message: "当前 OCR 会在本轮任务结束后停止。", color: "orange" });
     } catch (error) {
       notifyError("取消 OCR 失败", error);
+    }
+  }
+
+  async function retryFailedOcr(targetFiles?: FileRecord[]) {
+    try {
+      const sourceFiles = Array.isArray(targetFiles) ? targetFiles : data.files;
+      const candidates = sourceFiles.filter(
+        (file) => file.contentIndexStatus === "failed" && file.contentIndexSource === "ocr"
+      );
+      if (!candidates.length) {
+        notifications.show({ title: "没有失败项", message: "当前没有可重试的 OCR 失败文件。", color: "gray" });
+        return;
+      }
+
+      setOcrRunning(true);
+      setOcrProgress({ current: 0, total: candidates.length, status: "准备 OCR", progress: 0 });
+      const results = await window.fileKb.indexOcrFiles({
+        files: candidates,
+        language: data.settings.ocrLanguage || "chi_sim+eng"
+      });
+      const resultById = new Map(results.map((result) => [result.id, result]));
+      const nextFiles = data.files.map((file) => {
+        const result = resultById.get(file.id);
+        if (!result) return file;
+        return {
+          ...file,
+          contentIndexStatus: result.status,
+          contentIndexSource: result.source || "ocr",
+          contentIndexedAt: result.indexedAt,
+          contentIndexError: result.error ? normalizeOcrError(result.error) : undefined
+        };
+      });
+
+      await persist({ ...data, files: nextFiles });
+      notifications.show({
+        title: "OCR 重试完成",
+        message: `处理 ${results.length} 个失败文件`,
+        color: "teal"
+      });
+    } catch (error) {
+      notifyError("重试 OCR 失败", error);
+    } finally {
+      setOcrRunning(false);
     }
   }
 
@@ -1338,6 +1427,11 @@ export default function App() {
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={scanLibraryFiles}>扫描知识库</Button>
           <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={checkIndexedFiles}>检查文件</Button>
           <Button variant="light" leftSection={<Search size={16} />} onClick={indexTextContent}>建立内容索引</Button>
+          {failedTextIndexCount > 0 && (
+            <Button variant="light" color="orange" leftSection={<RefreshCw size={16} />} onClick={() => retryFailedTextIndexes()}>
+              重试全文失败
+            </Button>
+          )}
           {ocrRunning ? (
             <Button variant="light" color="red" leftSection={<Square size={16} />} onClick={cancelOcr}>
               取消 OCR
@@ -1345,6 +1439,11 @@ export default function App() {
           ) : (
             <Button variant="light" leftSection={<ScanText size={16} />} onClick={() => indexOcrContent()}>
               建立 OCR 索引
+            </Button>
+          )}
+          {!ocrRunning && failedOcrCount > 0 && (
+            <Button variant="light" color="orange" leftSection={<RefreshCw size={16} />} onClick={() => retryFailedOcr()}>
+              重试 OCR 失败
             </Button>
           )}
           <Button variant="light" leftSection={<Tag size={16} />} onClick={openTagModal}>标签管理</Button>
@@ -1486,6 +1585,20 @@ export default function App() {
                   <Alert color="orange" title="内容索引失败">
                     {selectedFile.contentIndexError}
                   </Alert>
+                )}
+                {selectedFile.contentIndexStatus === "failed" && (
+                  <Group gap="sm">
+                    {(selectedFile.contentIndexSource || "text") === "text" && (
+                      <Button size="xs" variant="light" color="orange" leftSection={<RefreshCw size={14} />} onClick={() => retryFailedTextIndexes([selectedFile])}>
+                        重试全文索引
+                      </Button>
+                    )}
+                    {selectedFile.contentIndexSource === "ocr" && !ocrRunning && (
+                      <Button size="xs" variant="light" color="orange" leftSection={<RefreshCw size={14} />} onClick={() => retryFailedOcr([selectedFile])}>
+                        重试 OCR
+                      </Button>
+                    )}
+                  </Group>
                 )}
                 <Paper p="sm" withBorder>
                   <Stack gap="sm">
