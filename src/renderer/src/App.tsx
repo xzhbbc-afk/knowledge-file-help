@@ -2414,7 +2414,7 @@ export default function App() {
         onClose={() => setGraphModalOpen(false)}
         title="图谱视图"
         position="right"
-        size="72vw"
+        size="82vw"
         classNames={{ body: "graphDrawerBody" }}
       >
         <Stack className="graphDrawerContent">
@@ -2468,13 +2468,13 @@ export default function App() {
               </Stack>
             )}
           </div>
-          <Paper p="sm" withBorder>
+          <Paper p="sm" withBorder className="graphRelationsPanel">
             <Stack gap="xs">
               <Group justify="space-between">
                 <Text size="sm" fw={800}>关系明细</Text>
                 <Badge variant="light">{graphPayload.edges.length}</Badge>
               </Group>
-              <ScrollArea.Autosize mah={220}>
+              <ScrollArea.Autosize mah={140}>
                 <Stack gap={6} pr="xs">
                   {graphPayload.edges.length ? (
                     graphPayload.edges.map((edge) => {

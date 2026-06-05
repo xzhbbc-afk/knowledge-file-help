@@ -288,25 +288,32 @@ body {
 }
 
 .graphPanel {
-  min-height: 620px;
-  padding: 20px;
+  flex: 1 1 auto;
+  min-height: 660px;
+  padding: 24px;
   border: 1px solid #e6e9ef;
   border-radius: 8px;
   background: #f8fafc;
+  overflow: hidden;
 }
 
 .graphDrawerBody {
   height: calc(100vh - 64px);
-  padding: 16px 18px 20px;
+  padding: 14px 18px 18px;
+  overflow: hidden;
 }
 
 .graphDrawerContent {
-  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .mindMap {
   position: relative;
-  min-height: 580px;
+  height: 100%;
+  min-height: 660px;
   overflow: hidden;
 }
 
@@ -401,7 +408,11 @@ body {
 }
 
 .graphEmpty {
-  min-height: 580px;
+  min-height: 660px;
+}
+
+.graphRelationsPanel {
+  flex: 0 0 auto;
 }
 
 .graphEdgeRow {
