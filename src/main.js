@@ -1,6 +1,6 @@
 const path = require("path");
 const fs = require("fs");
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, shell } = require("electron");
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, shell, nativeImage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
 const { createStore } = require("./store");
@@ -25,6 +25,27 @@ autoUpdater.autoInstallOnAppQuit = false;
 
 function resolveAssetPath(...parts) {
   return path.join(__dirname, "..", ...parts);
+}
+
+function createMacTrayIcon() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
+      <g fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5.2 2.5h5.4l2.9 2.9v6.2a1.9 1.9 0 0 1-1.9 1.9H5.2a1.9 1.9 0 0 1-1.9-1.9V4.4a1.9 1.9 0 0 1 1.9-1.9z"/>
+        <path d="M10.6 2.5v2.9h2.9"/>
+        <circle cx="8" cy="9.2" r="2.2"/>
+        <path d="M9.5 10.7l2.1 2.1"/>
+      </g>
+    </svg>
+  `.trim();
+  const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+  image.setTemplateImage(true);
+  return image.resize({ width: 18, height: 18 });
+}
+
+function trayIconSource() {
+  if (process.platform === "darwin") return createMacTrayIcon();
+  return resolveAssetPath("assets", "local-knowledge-logo.png");
 }
 
 function uniqueDestinationPath(directoryPath, fileName) {
@@ -372,7 +393,7 @@ function showMainWindow() {
 function createTray() {
   if (tray) return tray;
 
-  tray = new Tray(resolveAssetPath("assets", "local-knowledge-logo.png"));
+  tray = new Tray(trayIconSource());
   tray.setToolTip("本地文件知识库");
   tray.setContextMenu(Menu.buildFromTemplate([
     {
