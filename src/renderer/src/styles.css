@@ -288,37 +288,77 @@ body {
 }
 
 .graphPanel {
-  min-height: 280px;
-  padding: 18px;
+  min-height: 460px;
+  padding: 20px;
   border: 1px solid #e6e9ef;
   border-radius: 8px;
   background: #f8fafc;
 }
 
-.graphNodeCloud {
-  display: flex;
-  min-height: 250px;
-  align-content: center;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 12px;
+.mindMap {
+  position: relative;
+  min-height: 420px;
+  overflow: hidden;
 }
 
-.graphNode {
-  width: 150px;
-  min-height: 76px;
-  padding: 10px;
+.mindMap::before {
+  position: absolute;
+  inset: 50%;
+  width: 280px;
+  height: 280px;
+  border: 1px dashed #d7e3ea;
+  border-radius: 999px;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.mindMapLines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mindMapLines span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 230px;
+  height: 1px;
+  background: linear-gradient(90deg, #9fcfc7, rgba(159, 207, 199, 0));
+  transform-origin: 0 0;
+}
+
+.mindNode {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   border: 1px solid #dce4ec;
   border-radius: 8px;
   background: #ffffff;
   color: #1f2937;
   cursor: pointer;
   text-align: left;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.1);
 }
 
-.graphNode span {
+.mindNode-center {
+  width: 190px;
+  min-height: 92px;
+  padding: 14px;
+  border-color: #0f766e;
+  background: #f0fbf8;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.mindNode-child {
+  width: 152px;
+  min-height: 72px;
+  padding: 10px;
+  z-index: 1;
+}
+
+.mindNode span {
   display: block;
   margin-bottom: 4px;
   color: #64748b;
@@ -326,7 +366,7 @@ body {
   font-weight: 800;
 }
 
-.graphNode strong {
+.mindNode strong {
   display: -webkit-box;
   overflow: hidden;
   font-size: 13px;
@@ -335,25 +375,24 @@ body {
   -webkit-line-clamp: 2;
 }
 
-.graphNode-file {
+.mindNode-center strong {
+  font-size: 15px;
+}
+
+.mindNode-file {
   border-color: #bdd7ff;
 }
 
-.graphNode-category {
+.mindNode-category {
   border-color: #9fd8d0;
 }
 
-.graphNode-tag {
+.mindNode-tag {
   border-color: #ffd19f;
 }
 
-.graphNode-active {
-  border-color: #0f766e;
-  background: #f0fbf8;
-}
-
 .graphEmpty {
-  min-height: 250px;
+  min-height: 420px;
 }
 
 .graphEdgeRow {

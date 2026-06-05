@@ -462,6 +462,16 @@ export default function App() {
       relatedFiles: relatedFiles.sort((a, b) => b.edge.weight - a.edge.weight).slice(0, 8)
     };
   }, [graphPayload, graphNodeById, selectedGraphFileNodeId]);
+  const graphCenterNode = useMemo(() => {
+    if (selectedGraphFileNodeId && graphNodeById.has(selectedGraphFileNodeId)) return graphNodeById.get(selectedGraphFileNodeId) || null;
+    const categoryNodeId = `category:${selectedCategoryId || "root"}`;
+    if (graphNodeById.has(categoryNodeId)) return graphNodeById.get(categoryNodeId) || null;
+    return graphPayload.nodes[0] || null;
+  }, [graphNodeById, graphPayload.nodes, selectedCategoryId, selectedGraphFileNodeId]);
+  const graphMindNodes = useMemo(() => {
+    if (!graphCenterNode) return [];
+    return graphPayload.nodes.filter((node) => node.id !== graphCenterNode.id).slice(0, 14);
+  }, [graphCenterNode, graphPayload.nodes]);
 
   useEffect(() => {
     let canceled = false;
@@ -2410,18 +2420,38 @@ export default function App() {
           </Group>
           <div className="graphPanel">
             {graphPayload.nodes.length ? (
-              <div className="graphNodeCloud">
-                {graphPayload.nodes.map((node) => (
+              <div className="mindMap">
+                <div className="mindMapLines" aria-hidden="true">
+                  {graphMindNodes.map((node, index) => {
+                    const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
+                    return <span key={node.id} style={{ transform: `rotate(${angle}deg)` }} />;
+                  })}
+                </div>
+                {graphCenterNode && (
                   <button
-                    key={node.id}
                     type="button"
-                    className={`graphNode graphNode-${node.type} ${node.id === selectedGraphFileNodeId ? "graphNode-active" : ""}`}
-                    onClick={() => jumpToGraphNode(node)}
+                    className={`mindNode mindNode-center mindNode-${graphCenterNode.type}`}
+                    onClick={() => jumpToGraphNode(graphCenterNode)}
                   >
-                    <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
-                    <strong>{node.name}</strong>
+                    <span>{graphCenterNode.type === "category" ? "分类" : graphCenterNode.type === "tag" ? "标签" : "文件"}</span>
+                    <strong>{graphCenterNode.name}</strong>
                   </button>
-                ))}
+                )}
+                {graphMindNodes.map((node, index) => {
+                  const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
+                  return (
+                    <button
+                      key={node.id}
+                      type="button"
+                      className={`mindNode mindNode-child mindNode-${node.type}`}
+                      style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translate(230px) rotate(${-angle}deg)` }}
+                      onClick={() => jumpToGraphNode(node)}
+                    >
+                      <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
+                      <strong>{node.name}</strong>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <Stack className="emptyState graphEmpty" align="center" justify="center">
