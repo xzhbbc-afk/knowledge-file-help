@@ -288,24 +288,33 @@ body {
 }
 
 .graphPanel {
-  min-height: 460px;
+  min-height: 620px;
   padding: 20px;
   border: 1px solid #e6e9ef;
   border-radius: 8px;
   background: #f8fafc;
 }
 
+.graphDrawerBody {
+  height: calc(100vh - 64px);
+  padding: 16px 18px 20px;
+}
+
+.graphDrawerContent {
+  min-height: 100%;
+}
+
 .mindMap {
   position: relative;
-  min-height: 420px;
+  min-height: 580px;
   overflow: hidden;
 }
 
 .mindMap::before {
   position: absolute;
   inset: 50%;
-  width: 280px;
-  height: 280px;
+  width: 390px;
+  height: 390px;
   border: 1px dashed #d7e3ea;
   border-radius: 999px;
   content: "";
@@ -322,7 +331,7 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 230px;
+  width: 320px;
   height: 1px;
   background: linear-gradient(90deg, #9fcfc7, rgba(159, 207, 199, 0));
   transform-origin: 0 0;
@@ -342,8 +351,8 @@ body {
 }
 
 .mindNode-center {
-  width: 190px;
-  min-height: 92px;
+  width: 220px;
+  min-height: 104px;
   padding: 14px;
   border-color: #0f766e;
   background: #f0fbf8;
@@ -352,8 +361,8 @@ body {
 }
 
 .mindNode-child {
-  width: 152px;
-  min-height: 72px;
+  width: 168px;
+  min-height: 78px;
   padding: 10px;
   z-index: 1;
 }
@@ -392,7 +401,7 @@ body {
 }
 
 .graphEmpty {
-  min-height: 420px;
+  min-height: 580px;
 }
 
 .graphEdgeRow {

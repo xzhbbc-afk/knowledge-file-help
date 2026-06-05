@@ -6,6 +6,7 @@ import {
   Button,
   Checkbox,
   Divider,
+  Drawer,
   Group,
   Menu,
   Modal,
@@ -2408,8 +2409,15 @@ export default function App() {
         </Stack>
       </Modal>
 
-      <Modal opened={graphModalOpen} onClose={() => setGraphModalOpen(false)} title="图谱视图" size="xl">
-        <Stack>
+      <Drawer
+        opened={graphModalOpen}
+        onClose={() => setGraphModalOpen(false)}
+        title="图谱视图"
+        position="right"
+        size="72vw"
+        classNames={{ body: "graphDrawerBody" }}
+      >
+        <Stack className="graphDrawerContent">
           <Group justify="space-between" align="center">
             <Text size="sm" c="dimmed">
               {graphStats ? `${graphStats.nodeCount} 个节点，${graphStats.edgeCount} 条关系` : "局部关系图"}
@@ -2444,7 +2452,7 @@ export default function App() {
                       key={node.id}
                       type="button"
                       className={`mindNode mindNode-child mindNode-${node.type}`}
-                      style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translate(230px) rotate(${-angle}deg)` }}
+                      style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translate(320px) rotate(${-angle}deg)` }}
                       onClick={() => jumpToGraphNode(node)}
                     >
                       <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
@@ -2492,7 +2500,7 @@ export default function App() {
             </Stack>
           </Paper>
         </Stack>
-      </Modal>
+      </Drawer>
 
       <Modal opened={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} title="知识库目录" size="lg">
         <Stack>
