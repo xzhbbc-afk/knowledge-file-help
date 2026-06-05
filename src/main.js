@@ -45,7 +45,7 @@ function createMacTrayIcon() {
 
 function trayIconSource() {
   if (process.platform === "darwin") return createMacTrayIcon();
-  return resolveAssetPath("assets", "local-knowledge-logo.png");
+  return resolveAssetPath("assets", "local-knowledge-logo-rounded-transparent.png");
 }
 
 function uniqueDestinationPath(directoryPath, fileName) {
@@ -487,7 +487,7 @@ function createWindow() {
     height: 860,
     minWidth: 1100,
     minHeight: 680,
-    icon: resolveAssetPath("assets", "local-knowledge-logo.png"),
+    icon: resolveAssetPath("assets", "local-knowledge-logo-rounded-transparent.png"),
     backgroundColor: "#f6f7f4",
     title: "本地文件知识库",
     webPreferences: {

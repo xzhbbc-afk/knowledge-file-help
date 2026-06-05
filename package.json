@@ -70,14 +70,14 @@
           ]
         }
       ],
-      "icon": "assets/local-knowledge-logo.png"
+      "icon": "assets/local-knowledge-logo-rounded-transparent.png"
     },
     "mac": {
       "target": [
         "zip"
       ],
       "category": "public.app-category.productivity",
-      "icon": "assets/local-knowledge-logo.png",
+      "icon": "assets/local-knowledge-logo-rounded-transparent.png",
       "artifactName": "knowledge-file-help-${version}-mac-${arch}.${ext}"
     },
     "nsis": {

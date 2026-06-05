@@ -48,7 +48,7 @@ import {
   Download
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import appLogo from "../../../assets/local-knowledge-logo.png";
+import appLogo from "../../../assets/local-knowledge-logo-rounded-transparent.png";
 
 const seededCategoryIds = new Set([
   "cat_reports",
