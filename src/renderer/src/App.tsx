@@ -45,7 +45,8 @@ import {
   X,
   Ellipsis,
   Power,
-  Download
+  Download,
+  Network
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import appLogo from "../../../assets/local-knowledge-logo-rounded-transparent.png";
@@ -107,6 +108,11 @@ const emptyUpdateStatus: UpdateStatusPayload = {
   hasUpdate: false,
   owner: "",
   repo: ""
+};
+
+const emptyGraph: GraphPayload = {
+  nodes: [],
+  edges: []
 };
 
 type LibrarySyncResult = {
@@ -327,6 +333,10 @@ export default function App() {
   const [libraryGuideOpen, setLibraryGuideOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusPayload>(emptyUpdateStatus);
+  const [graphModalOpen, setGraphModalOpen] = useState(false);
+  const [graphPayload, setGraphPayload] = useState<GraphPayload>(emptyGraph);
+  const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -420,6 +430,38 @@ export default function App() {
     () => data.files.find((file) => file.id === selectedFileId),
     [data.files, selectedFileId]
   );
+  const graphNodeById = useMemo(() => new Map(graphPayload.nodes.map((node) => [node.id, node])), [graphPayload]);
+  const selectedGraphFileNodeId = selectedFile ? `file:${selectedFile.id}` : "";
+  const selectedGraphRelations = useMemo(() => {
+    if (!selectedGraphFileNodeId) {
+      return {
+        categoryNodes: [] as GraphNode[],
+        tagNodes: [] as GraphNode[],
+        relatedFiles: [] as Array<{ node: GraphNode; edge: GraphEdge }>
+      };
+    }
+
+    const categoryNodes: GraphNode[] = [];
+    const tagNodes: GraphNode[] = [];
+    const relatedFiles: Array<{ node: GraphNode; edge: GraphEdge }> = [];
+
+    graphPayload.edges.forEach((edge) => {
+      const touchesSelected = edge.source === selectedGraphFileNodeId || edge.target === selectedGraphFileNodeId;
+      if (!touchesSelected) return;
+      const otherId = edge.source === selectedGraphFileNodeId ? edge.target : edge.source;
+      const otherNode = graphNodeById.get(otherId);
+      if (!otherNode) return;
+      if (otherNode.type === "category") categoryNodes.push(otherNode);
+      if (otherNode.type === "tag") tagNodes.push(otherNode);
+      if (otherNode.type === "file" && edge.type === "related_file") relatedFiles.push({ node: otherNode, edge });
+    });
+
+    return {
+      categoryNodes,
+      tagNodes,
+      relatedFiles: relatedFiles.sort((a, b) => b.edge.weight - a.edge.weight).slice(0, 8)
+    };
+  }, [graphPayload, graphNodeById, selectedGraphFileNodeId]);
 
   useEffect(() => {
     let canceled = false;
@@ -639,6 +681,29 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedFileId) {
+      setGraphPayload(emptyGraph);
+      return;
+    }
+
+    let canceled = false;
+    async function loadGraph() {
+      try {
+        const payload = await window.fileKb.graphForFile(selectedFileId);
+        if (!canceled) setGraphPayload(payload);
+      } catch (error) {
+        if (!canceled) setGraphPayload(emptyGraph);
+        notifyError("读取关联关系失败", error);
+      }
+    }
+
+    loadGraph();
+    return () => {
+      canceled = true;
+    };
+  }, [selectedFileId]);
 
   useEffect(() => {
     if (!selectedFile) {
@@ -964,6 +1029,65 @@ export default function App() {
       await window.fileKb.quitAndInstallUpdate();
     } catch (error) {
       notifyError("安装更新失败", error);
+    }
+  }
+
+  async function refreshGraphStats() {
+    try {
+      const stats = await window.fileKb.graphStats();
+      setGraphStats(stats);
+    } catch (error) {
+      notifyError("读取图谱统计失败", error);
+    }
+  }
+
+  async function rebuildKnowledgeGraph() {
+    setGraphLoading(true);
+    try {
+      const stats = await window.fileKb.rebuildGraph();
+      setGraphStats(stats);
+      if (selectedFileId) {
+        setGraphPayload(await window.fileKb.graphForFile(selectedFileId));
+      }
+      notifications.show({ title: "关系图已重建", message: `${stats.nodeCount} 个节点，${stats.edgeCount} 条关系`, color: "teal" });
+    } catch (error) {
+      notifyError("重建关系图失败", error);
+    } finally {
+      setGraphLoading(false);
+    }
+  }
+
+  async function openGraphModal() {
+    setGraphModalOpen(true);
+    setGraphLoading(true);
+    try {
+      const payload = selectedFileId
+        ? await window.fileKb.graphForFile(selectedFileId)
+        : await window.fileKb.graphForCategory(selectedCategoryId);
+      setGraphPayload(payload);
+      await refreshGraphStats();
+    } catch (error) {
+      notifyError("打开图谱视图失败", error);
+    } finally {
+      setGraphLoading(false);
+    }
+  }
+
+  function jumpToGraphNode(node: GraphNode) {
+    if (node.type === "file") {
+      setSelectedFileId(node.refId);
+      setGraphModalOpen(false);
+      return;
+    }
+    if (node.type === "category") {
+      setSelectedCategoryId(node.refId);
+      setSelectedFileId("");
+      setGraphModalOpen(false);
+      return;
+    }
+    if (node.type === "tag") {
+      setTagFilter(node.refId);
+      setGraphModalOpen(false);
     }
   }
 
@@ -1774,6 +1898,12 @@ export default function App() {
               <Menu.Item leftSection={<Settings2 size={16} />} onClick={openRulesModal}>
                 归档规则
               </Menu.Item>
+              <Menu.Item leftSection={<Network size={16} />} onClick={openGraphModal}>
+                图谱视图
+              </Menu.Item>
+              <Menu.Item leftSection={<RefreshCw size={16} />} onClick={rebuildKnowledgeGraph}>
+                重建关系图
+              </Menu.Item>
               <Menu.Item leftSection={<RefreshCw size={16} />} onClick={openUpdateModalAndCheck}>
                 检查更新
               </Menu.Item>
@@ -1962,6 +2092,69 @@ export default function App() {
                         {selectedFile.contentIndexStatus === "indexed" ? "点击查看已建立的索引文本。" : "建立内容索引或 OCR 索引后可查看文本。"}
                       </Text>
                     )}
+                  </Stack>
+                </Paper>
+                <Paper p="sm" withBorder>
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="center">
+                      <div>
+                        <Text size="sm" fw={800}>关联关系</Text>
+                        <Text size="xs" c="dimmed">分类、标签和相似文件</Text>
+                      </div>
+                      <Button size="xs" variant="light" leftSection={<Network size={14} />} onClick={openGraphModal}>
+                        图谱
+                      </Button>
+                    </Group>
+                    <Stack gap={8}>
+                      <div>
+                        <Text size="xs" fw={800} c="dimmed">分类</Text>
+                        <Group gap={6} mt={6}>
+                          {selectedGraphRelations.categoryNodes.length ? (
+                            selectedGraphRelations.categoryNodes.map((node) => (
+                              <Badge key={node.id} color="teal" variant="light" className="clickableBadge" onClick={() => jumpToGraphNode(node)}>
+                                {node.name}
+                              </Badge>
+                            ))
+                          ) : (
+                            <Text size="xs" c="dimmed">暂无分类关系</Text>
+                          )}
+                        </Group>
+                      </div>
+                      <div>
+                        <Text size="xs" fw={800} c="dimmed">标签</Text>
+                        <Group gap={6} mt={6}>
+                          {selectedGraphRelations.tagNodes.length ? (
+                            selectedGraphRelations.tagNodes.map((node) => (
+                              <Badge key={node.id} color="orange" variant="light" className="clickableBadge" onClick={() => jumpToGraphNode(node)}>
+                                {node.name}
+                              </Badge>
+                            ))
+                          ) : (
+                            <Text size="xs" c="dimmed">暂无标签关系</Text>
+                          )}
+                        </Group>
+                      </div>
+                      <div>
+                        <Text size="xs" fw={800} c="dimmed">相似文件</Text>
+                        <Stack gap={6} mt={6}>
+                          {selectedGraphRelations.relatedFiles.length ? (
+                            selectedGraphRelations.relatedFiles.map(({ node, edge }) => (
+                              <Paper key={edge.id} p="xs" withBorder className="relationItem" onClick={() => jumpToGraphNode(node)}>
+                                <Group justify="space-between" gap="sm" wrap="nowrap">
+                                  <div className="relationText">
+                                    <Text size="sm" fw={700} truncate>{node.name}</Text>
+                                    <Text size="xs" c="dimmed" lineClamp={1}>{edge.reason}</Text>
+                                  </div>
+                                  <Badge color="blue" variant="light">{edge.weight}</Badge>
+                                </Group>
+                              </Paper>
+                            ))
+                          ) : (
+                            <Text size="xs" c="dimmed">暂无相似文件</Text>
+                          )}
+                        </Stack>
+                      </div>
+                    </Stack>
                   </Stack>
                 </Paper>
                 <Select
@@ -2202,6 +2395,72 @@ export default function App() {
               </Button>
             )}
           </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={graphModalOpen} onClose={() => setGraphModalOpen(false)} title="图谱视图" size="xl">
+        <Stack>
+          <Group justify="space-between" align="center">
+            <Text size="sm" c="dimmed">
+              {graphStats ? `${graphStats.nodeCount} 个节点，${graphStats.edgeCount} 条关系` : "局部关系图"}
+            </Text>
+            <Button size="xs" variant="light" leftSection={<RefreshCw size={14} />} onClick={rebuildKnowledgeGraph} loading={graphLoading}>
+              重建
+            </Button>
+          </Group>
+          <div className="graphPanel">
+            {graphPayload.nodes.length ? (
+              <div className="graphNodeCloud">
+                {graphPayload.nodes.map((node) => (
+                  <button
+                    key={node.id}
+                    type="button"
+                    className={`graphNode graphNode-${node.type} ${node.id === selectedGraphFileNodeId ? "graphNode-active" : ""}`}
+                    onClick={() => jumpToGraphNode(node)}
+                  >
+                    <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
+                    <strong>{node.name}</strong>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <Stack className="emptyState graphEmpty" align="center" justify="center">
+                <Text fw={800}>暂无图谱数据</Text>
+                <Text size="sm" c="dimmed">先导入文件，或重建关系图。</Text>
+              </Stack>
+            )}
+          </div>
+          <Paper p="sm" withBorder>
+            <Stack gap="xs">
+              <Group justify="space-between">
+                <Text size="sm" fw={800}>关系明细</Text>
+                <Badge variant="light">{graphPayload.edges.length}</Badge>
+              </Group>
+              <ScrollArea.Autosize mah={220}>
+                <Stack gap={6} pr="xs">
+                  {graphPayload.edges.length ? (
+                    graphPayload.edges.map((edge) => {
+                      const source = graphNodeById.get(edge.source);
+                      const target = graphNodeById.get(edge.target);
+                      return (
+                        <Group key={edge.id} justify="space-between" gap="sm" wrap="nowrap" className="graphEdgeRow">
+                          <Text size="sm" truncate>
+                            {source?.name || edge.source} {"->"} {target?.name || edge.target}
+                          </Text>
+                          <Group gap={6} wrap="nowrap">
+                            <Badge variant="light" color={edge.type === "related_file" ? "blue" : "gray"}>{edge.weight}</Badge>
+                            <Text size="xs" c="dimmed">{edge.reason || edge.type}</Text>
+                          </Group>
+                        </Group>
+                      );
+                    })
+                  ) : (
+                    <Text size="sm" c="dimmed">暂无关系明细。</Text>
+                  )}
+                </Stack>
+              </ScrollArea.Autosize>
+            </Stack>
+          </Paper>
         </Stack>
       </Modal>
 

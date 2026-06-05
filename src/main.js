@@ -794,6 +794,22 @@ ipcMain.handle("content:get-index", async (_event, fileId) => {
   return store.getContentIndex(fileId);
 });
 
+ipcMain.handle("graph:rebuild", async () => {
+  return store.rebuildGraphIndex();
+});
+
+ipcMain.handle("graph:for-file", async (_event, fileId) => {
+  return store.graphForFile(fileId);
+});
+
+ipcMain.handle("graph:for-category", async (_event, categoryId) => {
+  return store.graphForCategory(categoryId || "");
+});
+
+ipcMain.handle("graph:stats", async () => {
+  return store.graphStats();
+});
+
 ipcMain.handle("files:open", async (_event, filePath) => {
   if (!fs.existsSync(filePath)) {
     return { ok: false, message: "文件不存在，可能已被移动或删除。" };

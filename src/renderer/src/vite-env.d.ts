@@ -144,6 +144,38 @@ type ContentSearchMatch = {
   hitCount?: number;
 };
 
+type GraphNodeType = "category" | "file" | "tag";
+type GraphEdgeType = "child_of" | "contains_file" | "tagged_with" | "related_file";
+
+type GraphNode = {
+  id: string;
+  type: GraphNodeType;
+  refId: string;
+  name: string;
+  meta: Record<string, unknown>;
+};
+
+type GraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  type: GraphEdgeType;
+  weight: number;
+  reason: string;
+  meta: Record<string, unknown>;
+};
+
+type GraphPayload = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
+
+type GraphStats = {
+  nodeCount: number;
+  edgeCount: number;
+  updatedAt: string;
+};
+
 interface Window {
   fileKb: {
     load: () => Promise<FileKbStoreData>;
@@ -208,6 +240,10 @@ interface Window {
     searchContent: (query: string) => Promise<ContentSearchMatch[]>;
     contentTextByFileIds: (fileIds: string[]) => Promise<Record<string, string>>;
     getContentIndex: (fileId: string) => Promise<ContentIndexDetail>;
+    rebuildGraph: () => Promise<GraphStats>;
+    graphForFile: (fileId: string) => Promise<GraphPayload>;
+    graphForCategory: (categoryId: string) => Promise<GraphPayload>;
+    graphStats: () => Promise<GraphStats>;
     openFile: (filePath: string) => Promise<ShellResult>;
     showInFolder: (filePath: string) => Promise<ShellResult>;
     quitApp: () => Promise<ActionResult>;

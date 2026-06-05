@@ -85,6 +85,7 @@ const OCR_NOISE_PATTERNS = [
   "Error attempting to read image"
 ];
 const OCR_PDF_PAGE_LIMIT = 20;
+const GRAPH_RELATED_FILE_LIMIT = 8;
 
 let SQLPromise;
 let pdfjsPromise;
@@ -519,6 +520,24 @@ async function createStore(userDataPath) {
         source TEXT NOT NULL DEFAULT 'text',
         PRIMARY KEY (term, file_id)
       );
+      CREATE TABLE IF NOT EXISTS graph_nodes (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        ref_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        meta_json TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS graph_edges (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        weight REAL NOT NULL DEFAULT 1,
+        reason TEXT NOT NULL DEFAULT '',
+        meta_json TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL
+      );
     `);
     const contentColumns = queryAll(db, "PRAGMA table_info(content_index)").map((column) => String(column.name));
     if (!contentColumns.includes("content")) {
@@ -569,6 +588,242 @@ async function createStore(userDataPath) {
         db.run("INSERT OR IGNORE INTO content_terms (term, file_id, source) VALUES (?, ?, ?)", [term, fileId, source]);
       });
     }
+  }
+
+  function graphNodeId(type, refId) {
+    return `${type}:${refId || "root"}`;
+  }
+
+  function graphEdgeId(type, sourceId, targetId) {
+    return `${type}:${sourceId}->${targetId}`;
+  }
+
+  function insertGraphNode(db, node) {
+    db.run(
+      "INSERT OR REPLACE INTO graph_nodes (id, type, ref_id, name, meta_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        node.id,
+        node.type,
+        node.refId || "",
+        node.name || "",
+        JSON.stringify(node.meta || {}),
+        node.updatedAt
+      ]
+    );
+  }
+
+  function insertGraphEdge(db, edge) {
+    db.run(
+      "INSERT OR REPLACE INTO graph_edges (id, source_id, target_id, type, weight, reason, meta_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        edge.id,
+        edge.source,
+        edge.target,
+        edge.type,
+        Number(edge.weight || 1),
+        edge.reason || "",
+        JSON.stringify(edge.meta || {}),
+        edge.updatedAt
+      ]
+    );
+  }
+
+  function categoryPathForGraph(categories, categoryId) {
+    const byId = new Map(categories.map((category) => [category.id, category]));
+    function parts(id) {
+      const category = byId.get(id);
+      if (!category) return [];
+      if (!category.parentId) return [category.name];
+      return [...parts(category.parentId), category.name];
+    }
+    return parts(categoryId).join(" / ");
+  }
+
+  function termsForFiles(db, fileIds) {
+    const result = new Map(fileIds.map((fileId) => [fileId, new Set()]));
+    fileIds.forEach((fileId) => {
+      queryValues(db, "SELECT term FROM content_terms WHERE file_id = ? LIMIT 120", [fileId])
+        .forEach((term) => result.get(fileId)?.add(String(term)));
+    });
+    return result;
+  }
+
+  function rebuildGraph(db, data = loadFromDatabase(db)) {
+    const normalized = normalizeData(data);
+    const updatedAt = new Date().toISOString();
+    db.run("DELETE FROM graph_nodes");
+    db.run("DELETE FROM graph_edges");
+
+    insertGraphNode(db, {
+      id: graphNodeId("category", ""),
+      type: "category",
+      refId: "",
+      name: "全部文件",
+      meta: {
+        path: "全部文件",
+        note: "知识库根节点"
+      },
+      updatedAt
+    });
+
+    normalized.categories.forEach((category) => {
+      insertGraphNode(db, {
+        id: graphNodeId("category", category.id),
+        type: "category",
+        refId: category.id,
+        name: category.name,
+        meta: {
+          path: categoryPathForGraph(normalized.categories, category.id),
+          note: category.note || ""
+        },
+        updatedAt
+      });
+
+      const parentNodeId = graphNodeId("category", category.parentId || "");
+      insertGraphEdge(db, {
+        id: graphEdgeId("child_of", graphNodeId("category", category.id), parentNodeId),
+        source: graphNodeId("category", category.id),
+        target: parentNodeId,
+        type: "child_of",
+        weight: 1,
+        reason: category.parentId ? "父级分类" : "一级分类",
+        updatedAt
+      });
+    });
+
+    normalized.tags.forEach((tag) => {
+      insertGraphNode(db, {
+        id: graphNodeId("tag", tag),
+        type: "tag",
+        refId: tag,
+        name: tag,
+        updatedAt
+      });
+    });
+
+    normalized.files.forEach((file) => {
+      insertGraphNode(db, {
+        id: graphNodeId("file", file.id),
+        type: "file",
+        refId: file.id,
+        name: file.name,
+        meta: {
+          ext: file.ext || "",
+          path: file.path || "",
+          categoryId: file.categoryId || "",
+          note: file.note || ""
+        },
+        updatedAt
+      });
+
+      const ownerCategoryNodeId = graphNodeId("category", file.categoryId || "");
+      insertGraphEdge(db, {
+        id: graphEdgeId("contains_file", ownerCategoryNodeId, graphNodeId("file", file.id)),
+        source: ownerCategoryNodeId,
+        target: graphNodeId("file", file.id),
+        type: "contains_file",
+        weight: 1,
+        reason: file.categoryId ? "文件分类" : "未分类文件",
+        updatedAt
+      });
+
+      (file.tags || []).forEach((tag) => {
+        insertGraphNode(db, {
+          id: graphNodeId("tag", tag),
+          type: "tag",
+          refId: tag,
+          name: tag,
+          updatedAt
+        });
+        insertGraphEdge(db, {
+          id: graphEdgeId("tagged_with", graphNodeId("file", file.id), graphNodeId("tag", tag)),
+          source: graphNodeId("file", file.id),
+          target: graphNodeId("tag", tag),
+          type: "tagged_with",
+          weight: 1,
+          reason: "文件标签",
+          updatedAt
+        });
+      });
+    });
+
+    const fileTerms = termsForFiles(db, normalized.files.map((file) => file.id));
+    normalized.files.forEach((file) => {
+      const terms = fileTerms.get(file.id) || new Set();
+      tokenizeContent(`${file.name} ${file.note || ""}`).forEach((term) => terms.add(term));
+    });
+
+    const relatedBySource = new Map();
+    for (let leftIndex = 0; leftIndex < normalized.files.length; leftIndex += 1) {
+      const left = normalized.files[leftIndex];
+      const leftTerms = fileTerms.get(left.id) || new Set();
+      for (let rightIndex = leftIndex + 1; rightIndex < normalized.files.length; rightIndex += 1) {
+        const right = normalized.files[rightIndex];
+        let score = 0;
+        const reasons = [];
+
+        if (left.categoryId && left.categoryId === right.categoryId) {
+          score += 2;
+          reasons.push("同分类");
+        }
+
+        const sharedTags = (left.tags || []).filter((tag) => (right.tags || []).includes(tag));
+        if (sharedTags.length) {
+          score += sharedTags.length * 3;
+          reasons.push(`同标签：${sharedTags.slice(0, 3).join("、")}`);
+        }
+
+        const rightTerms = fileTerms.get(right.id) || new Set();
+        const sharedTerms = [...leftTerms].filter((term) => rightTerms.has(term)).slice(0, 6);
+        if (sharedTerms.length) {
+          score += Math.min(sharedTerms.length, 6);
+          reasons.push(`关键词：${sharedTerms.slice(0, 4).join("、")}`);
+        }
+
+        if (score < 4) continue;
+        const item = {
+          left,
+          right,
+          score,
+          reason: reasons.join("；")
+        };
+        relatedBySource.set(left.id, [...(relatedBySource.get(left.id) || []), item]);
+        relatedBySource.set(right.id, [...(relatedBySource.get(right.id) || []), item]);
+      }
+    }
+
+    const inserted = new Set();
+    relatedBySource.forEach((items) => {
+      items
+        .sort((a, b) => b.score - a.score)
+        .slice(0, GRAPH_RELATED_FILE_LIMIT)
+        .forEach((item) => {
+          const sourceId = graphNodeId("file", item.left.id);
+          const targetId = graphNodeId("file", item.right.id);
+          const id = graphEdgeId("related_file", sourceId, targetId);
+          if (inserted.has(id)) return;
+          inserted.add(id);
+          insertGraphEdge(db, {
+            id,
+            source: sourceId,
+            target: targetId,
+            type: "related_file",
+            weight: item.score,
+            reason: item.reason,
+            meta: {
+              leftFileId: item.left.id,
+              rightFileId: item.right.id
+            },
+            updatedAt
+          });
+        });
+    });
+
+    return {
+      nodeCount: Number(queryAll(db, "SELECT COUNT(*) AS count FROM graph_nodes")[0]?.count || 0),
+      edgeCount: Number(queryAll(db, "SELECT COUNT(*) AS count FROM graph_edges")[0]?.count || 0),
+      updatedAt
+    };
   }
 
   function queryAll(db, sqlText, params = []) {
@@ -728,6 +983,8 @@ async function createStore(userDataPath) {
         db.run("INSERT INTO settings (key, value) VALUES (?, ?)", [key, String(value)]);
       });
 
+      rebuildGraph(db, normalized);
+
       db.run("COMMIT");
     } catch (error) {
       db.run("ROLLBACK");
@@ -814,6 +1071,7 @@ async function createStore(userDataPath) {
         }
       }
       db.run("COMMIT");
+      rebuildGraph(db);
     } catch (error) {
       db.run("ROLLBACK");
       db.close();
@@ -899,6 +1157,7 @@ async function createStore(userDataPath) {
         }
       }
       db.run("COMMIT");
+      rebuildGraph(db);
     } catch (error) {
       db.run("ROLLBACK");
       db.close();
@@ -1025,7 +1284,142 @@ async function createStore(userDataPath) {
     return Number(rows[0]?.total || 0);
   }
 
-  return { dataPath, legacyDataPath, load, save, update, indexTextFiles, indexOcrFiles, searchContent, contentTextByFileIds, getContentIndex, contentIndexSize };
+  function graphRowsToPayload(db, nodeRows, edgeRows) {
+    const nodeIds = new Set(nodeRows.map((node) => node.id));
+    return {
+      nodes: nodeRows.map((node) => ({
+        id: node.id,
+        type: node.type,
+        refId: node.refId || "",
+        name: node.name || "",
+        meta: JSON.parse(node.metaJson || "{}")
+      })),
+      edges: edgeRows
+        .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+        .map((edge) => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          type: edge.type,
+          weight: Number(edge.weight || 1),
+          reason: edge.reason || "",
+          meta: JSON.parse(edge.metaJson || "{}")
+        }))
+    };
+  }
+
+  function ensureGraphBuilt(db) {
+    const count = Number(queryAll(db, "SELECT COUNT(*) AS count FROM graph_nodes")[0]?.count || 0);
+    if (!count) rebuildGraph(db);
+  }
+
+  function graphStats() {
+    const db = openDatabase();
+    execSchema(db);
+    ensureGraphBuilt(db);
+    const nodeCount = Number(queryAll(db, "SELECT COUNT(*) AS count FROM graph_nodes")[0]?.count || 0);
+    const edgeCount = Number(queryAll(db, "SELECT COUNT(*) AS count FROM graph_edges")[0]?.count || 0);
+    const updatedAt = queryValues(db, "SELECT MAX(updated_at) FROM graph_nodes")[0] || "";
+    db.close();
+    return { nodeCount, edgeCount, updatedAt };
+  }
+
+  function rebuildGraphIndex() {
+    const db = openDatabase();
+    execSchema(db);
+    db.run("BEGIN TRANSACTION");
+    try {
+      const result = rebuildGraph(db);
+      db.run("COMMIT");
+      persistDatabase(db);
+      db.close();
+      return result;
+    } catch (error) {
+      db.run("ROLLBACK");
+      db.close();
+      throw error;
+    }
+  }
+
+  function graphForFile(fileId) {
+    const db = openDatabase();
+    execSchema(db);
+    ensureGraphBuilt(db);
+    const centerId = graphNodeId("file", fileId);
+    const edgeRows = queryAll(
+      db,
+      `SELECT id, source_id AS source, target_id AS target, type, weight, reason, meta_json AS metaJson
+       FROM graph_edges
+       WHERE source_id = ? OR target_id = ?
+       ORDER BY weight DESC, type
+       LIMIT 80`,
+      [centerId, centerId]
+    );
+    const nodeIds = new Set([centerId]);
+    edgeRows.forEach((edge) => {
+      nodeIds.add(edge.source);
+      nodeIds.add(edge.target);
+    });
+    const nodeRows = [...nodeIds].flatMap((nodeId) =>
+      queryAll(
+        db,
+        "SELECT id, type, ref_id AS refId, name, meta_json AS metaJson FROM graph_nodes WHERE id = ?",
+        [nodeId]
+      )
+    );
+    const payload = graphRowsToPayload(db, nodeRows, edgeRows);
+    db.close();
+    return payload;
+  }
+
+  function graphForCategory(categoryId) {
+    const db = openDatabase();
+    execSchema(db);
+    ensureGraphBuilt(db);
+    const centerId = graphNodeId("category", categoryId);
+    const edgeRows = queryAll(
+      db,
+      `SELECT id, source_id AS source, target_id AS target, type, weight, reason, meta_json AS metaJson
+       FROM graph_edges
+       WHERE source_id = ? OR target_id = ?
+       ORDER BY type, weight DESC
+       LIMIT 120`,
+      [centerId, centerId]
+    );
+    const nodeIds = new Set([centerId]);
+    edgeRows.forEach((edge) => {
+      nodeIds.add(edge.source);
+      nodeIds.add(edge.target);
+    });
+    const nodeRows = [...nodeIds].flatMap((nodeId) =>
+      queryAll(
+        db,
+        "SELECT id, type, ref_id AS refId, name, meta_json AS metaJson FROM graph_nodes WHERE id = ?",
+        [nodeId]
+      )
+    );
+    const payload = graphRowsToPayload(db, nodeRows, edgeRows);
+    db.close();
+    return payload;
+  }
+
+  return {
+    dataPath,
+    legacyDataPath,
+    load,
+    save,
+    update,
+    indexTextFiles,
+    indexOcrFiles,
+    searchContent,
+    contentTextByFileIds,
+    getContentIndex,
+    contentIndexSize,
+    rebuildGraphIndex,
+    graphForFile,
+    graphForCategory,
+    graphStats
+  };
 }
 
 module.exports = { createStore };

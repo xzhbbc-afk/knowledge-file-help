@@ -266,6 +266,102 @@ body {
   white-space: pre-wrap;
 }
 
+.clickableBadge {
+  cursor: pointer;
+}
+
+.relationItem {
+  cursor: pointer;
+  border-color: #e6e9ef;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.relationItem:hover {
+  border-color: #64b5aa;
+  background: #f8fffd;
+}
+
+.relationText {
+  min-width: 0;
+}
+
+.graphPanel {
+  min-height: 280px;
+  padding: 18px;
+  border: 1px solid #e6e9ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.graphNodeCloud {
+  display: flex;
+  min-height: 250px;
+  align-content: center;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.graphNode {
+  width: 150px;
+  min-height: 76px;
+  padding: 10px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.graphNode span {
+  display: block;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.graphNode strong {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.graphNode-file {
+  border-color: #bdd7ff;
+}
+
+.graphNode-category {
+  border-color: #9fd8d0;
+}
+
+.graphNode-tag {
+  border-color: #ffd19f;
+}
+
+.graphNode-active {
+  border-color: #0f766e;
+  background: #f0fbf8;
+}
+
+.graphEmpty {
+  min-height: 250px;
+}
+
+.graphEdgeRow {
+  min-height: 30px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #eef2f6;
+}
+
 .importFileName {
   min-width: 0;
   flex: 1;
