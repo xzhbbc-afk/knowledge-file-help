@@ -34,4 +34,6 @@ for (const file of jsFiles) {
   }
 }
 
+require.resolve("electron-updater");
+
 console.log("Build check passed.");

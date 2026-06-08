@@ -1,9 +1,15 @@
 const path = require("path");
 const fs = require("fs");
 const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, shell, nativeImage } = require("electron");
-const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
 const { createStore } = require("./store");
+
+let autoUpdater = null;
+try {
+  ({ autoUpdater } = require("electron-updater"));
+} catch (error) {
+  log.warn("electron-updater is unavailable:", error?.message || error);
+}
 
 let mainWindow;
 let store;
@@ -19,9 +25,11 @@ let trayNoticeShown = false;
 let updateState = null;
 
 log.transports.file.level = "info";
-autoUpdater.logger = log;
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = false;
+if (autoUpdater) {
+  autoUpdater.logger = log;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+}
 
 function resolveAssetPath(...parts) {
   return path.join(__dirname, "..", ...parts);
@@ -272,6 +280,9 @@ function githubPublishConfig() {
 }
 
 function updateSupportError() {
+  if (!autoUpdater) {
+    return "检查更新模块未随应用打包，请重新安装完整版本。";
+  }
   if (!app.isPackaged) {
     return "开发环境不支持检查更新，请使用安装包或打包后的版本验证。";
   }
@@ -310,6 +321,7 @@ function updateUpdateState(patch) {
 
 function setupAutoUpdater() {
   updateState = initialUpdateState();
+  if (!autoUpdater) return;
 
   autoUpdater.on("checking-for-update", () => {
     updateUpdateState({
