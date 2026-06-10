@@ -290,19 +290,10 @@ body {
 .graphPanel {
   flex: 1 1 auto;
   min-height: 660px;
-  padding: 24px;
   border: 1px solid #e6e9ef;
   border-radius: 8px;
   background: #f8fafc;
-  cursor: grab;
-  display: flex;
-  overflow: auto;
-  touch-action: none;
-  user-select: none;
-}
-
-.graphPanelDragging {
-  cursor: grabbing;
+  overflow: hidden;
 }
 
 .graphDrawerBody {
@@ -318,52 +309,52 @@ body {
   min-height: 0;
 }
 
-.mindMapViewport {
-  position: relative;
-  flex: 0 0 auto;
-  margin: auto;
-  transition: transform 80ms ease-out;
+.graphPanel .react-flow {
+  background: linear-gradient(180deg, #f9fbfc 0%, #f5f8fa 100%);
 }
 
-.mindMap {
-  position: relative;
-  overflow: visible;
-  transform-origin: 0 0;
-  transition: transform 120ms ease-out;
-  will-change: transform;
+.graphPanel .react-flow__pane {
+  cursor: grab;
 }
 
-.mindMap::before {
-  position: absolute;
-  inset: 50%;
-  width: 390px;
-  height: 390px;
-  border: 1px dashed #d7e3ea;
-  border-radius: 999px;
-  content: "";
-  transform: translate(-50%, -50%);
+.graphPanel .react-flow__pane.dragging {
+  cursor: grabbing;
 }
 
-.mindMapLines {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+.graphPanel .react-flow__node-default {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.mindMapLines span {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 320px;
-  height: 1px;
-  background: linear-gradient(90deg, #9fcfc7, rgba(159, 207, 199, 0));
-  transform-origin: 0 0;
+.graphPanel .react-flow__edge-path {
+  stroke-linecap: round;
 }
 
-.mindNode {
-  position: absolute;
-  left: 50%;
-  top: 50%;
+.graphPanel .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid #dfe7ef;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+}
+
+.graphPanel .react-flow__controls-button {
+  border-bottom-color: #edf2f7;
+}
+
+.graphMiniMap {
+  overflow: hidden;
+  border: 1px solid #dfe7ef;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.graphFlowNode {
+  width: 184px;
+  min-height: 78px;
+  padding: 12px;
   border: 1px solid #dce4ec;
   border-radius: 8px;
   background: #ffffff;
@@ -373,25 +364,16 @@ body {
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.1);
 }
 
-.mindNode-center {
-  width: 220px;
-  min-height: 104px;
-  padding: 14px;
+.graphFlowNodeCenter {
+  width: 230px;
+  min-height: 108px;
+  padding: 16px;
   border-color: #0f766e;
   background: #f0fbf8;
-  transform: translate(-50%, -50%);
-  z-index: 2;
+  box-shadow: 0 18px 36px rgba(15, 118, 110, 0.14);
 }
 
-.mindNode-child {
-  width: 168px;
-  min-height: 78px;
-  padding: 10px;
-  transform: translate(-50%, -50%);
-  z-index: 1;
-}
-
-.mindNode span {
+.graphFlowNode span {
   display: block;
   margin-bottom: 4px;
   color: #64748b;
@@ -399,7 +381,7 @@ body {
   font-weight: 800;
 }
 
-.mindNode strong {
+.graphFlowNode strong {
   display: -webkit-box;
   overflow: hidden;
   font-size: 13px;
@@ -408,19 +390,19 @@ body {
   -webkit-line-clamp: 2;
 }
 
-.mindNode-center strong {
+.graphFlowNodeCenter strong {
   font-size: 15px;
 }
 
-.mindNode-file {
+.graphFlowNode-file {
   border-color: #bdd7ff;
 }
 
-.mindNode-category {
+.graphFlowNode-category {
   border-color: #9fd8d0;
 }
 
-.mindNode-tag {
+.graphFlowNode-tag {
   border-color: #ffd19f;
 }
 

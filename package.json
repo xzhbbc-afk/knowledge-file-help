@@ -33,6 +33,7 @@
     "@napi-rs/canvas": "^1.0.0",
     "@tesseract.js-data/chi_sim": "^1.0.0",
     "@tesseract.js-data/eng": "^1.0.0",
+    "@xyflow/react": "^12.11.0",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.3",
     "lucide-react": "^1.17.0",

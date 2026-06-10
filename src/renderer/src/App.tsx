@@ -27,6 +27,14 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
+  Background,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  type Edge as FlowEdge,
+  type Node as FlowNode
+} from "@xyflow/react";
+import {
   ExternalLink,
   FilePlus,
   FolderOpen,
@@ -47,11 +55,9 @@ import {
   Ellipsis,
   Power,
   Download,
-  Network,
-  RotateCcw
+  Network
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent, WheelEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import appLogo from "../../../assets/local-knowledge-logo-rounded-transparent.png";
 
 const seededCategoryIds = new Set([
@@ -68,9 +74,6 @@ const seededTags = new Set(["废水", "废气", "噪声", "固废", "报告", "�
 const ocrEnabledExts = new Set(["png", "jpg", "jpeg", "webp", "bmp", "pdf"]);
 const latinTokenPattern = /[a-z0-9_]{2,}/g;
 const cjkSequencePattern = /[\u3400-\u9fff]+/g;
-const graphZoomMin = 0.55;
-const graphZoomMax = 1.8;
-const graphZoomStep = 0.08;
 const graphCanvasSize = 980;
 const graphCanvasCenter = graphCanvasSize / 2;
 
@@ -345,9 +348,7 @@ export default function App() {
   const [graphPayload, setGraphPayload] = useState<GraphPayload>(emptyGraph);
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
-  const [graphZoom, setGraphZoom] = useState(1);
-  const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
-  const [graphDragging, setGraphDragging] = useState(false);
+  const [graphFlowKey, setGraphFlowKey] = useState(0);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -361,7 +362,6 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState<OcrProgressState | null>(null);
   const [contentIndexDetail, setContentIndexDetail] = useState<ContentIndexDetail | null>(null);
   const [contentIndexLoading, setContentIndexLoading] = useState(false);
-  const graphDragRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
   function contentIndexLabel(file: FileRecord) {
@@ -521,17 +521,49 @@ export default function App() {
     pushRow(tags, 830, 180, 800);
     return layout;
   }, [graphCenterNode, graphPayload.edges, graphPayload.nodes]);
-  const graphLayoutEdges = useMemo(() => (
-    graphLayoutNodes.map((item) => {
-      const dx = item.x - graphCanvasCenter;
-      const dy = item.y - graphCanvasCenter;
+  const graphFlowNodes = useMemo<FlowNode[]>(() => {
+    if (!graphCenterNode) return [];
+    const toFlowNode = (node: GraphNode, x: number, y: number, isCenter = false): FlowNode => ({
+      id: node.id,
+      type: "default",
+      position: { x, y },
+      data: {
+        label: (
+          <div className={`graphFlowNode graphFlowNode-${node.type}${isCenter ? " graphFlowNodeCenter" : ""}`}>
+            <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
+            <strong>{node.name}</strong>
+          </div>
+        )
+      },
+      draggable: false,
+      selectable: true
+    });
+
+    return [
+      toFlowNode(graphCenterNode, graphCanvasCenter - 110, graphCanvasCenter - 54, true),
+      ...graphLayoutNodes.map(({ node, x, y }) => toFlowNode(node, x - 84, y - 39))
+    ];
+  }, [graphCenterNode, graphLayoutNodes]);
+  const graphFlowEdges = useMemo<FlowEdge[]>(() => {
+    if (!graphCenterNode) return [];
+    return graphLayoutNodes.map(({ node }) => {
+      const relation = graphPayload.edges.find((edge) => (
+        (edge.source === graphCenterNode.id && edge.target === node.id)
+        || (edge.target === graphCenterNode.id && edge.source === node.id)
+      ));
       return {
-        id: item.node.id,
-        length: Math.sqrt(dx * dx + dy * dy),
-        angle: Math.atan2(dy, dx) * 180 / Math.PI
+        id: relation?.id || `${graphCenterNode.id}-${node.id}`,
+        source: graphCenterNode.id,
+        target: node.id,
+        animated: relation?.type === "related_file",
+        label: relation?.reason || "",
+        style: { stroke: relation?.type === "related_file" ? "#5b7cfa" : "#9fcfc7", strokeWidth: relation?.type === "related_file" ? 2 : 1.5 },
+        labelStyle: { fill: "#64748b", fontSize: 11, fontWeight: 700 },
+        labelBgStyle: { fill: "#f8fafc", fillOpacity: 0.86 },
+        type: "smoothstep"
       };
-    })
-  ), [graphLayoutNodes]);
+    });
+  }, [graphCenterNode, graphLayoutNodes, graphPayload.edges]);
 
   useEffect(() => {
     let canceled = false;
@@ -1129,8 +1161,7 @@ export default function App() {
 
   async function openGraphModal() {
     setGraphModalOpen(true);
-    setGraphZoom(1);
-    setGraphPan({ x: 0, y: 0 });
+    setGraphFlowKey((value) => value + 1);
     setGraphLoading(true);
     try {
       const payload = selectedFileId
@@ -1145,51 +1176,8 @@ export default function App() {
     }
   }
 
-  function handleGraphWheel(event: WheelEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const direction = event.deltaY < 0 ? 1 : -1;
-    setGraphZoom((value) => Math.min(graphZoomMax, Math.max(graphZoomMin, Number((value + direction * graphZoomStep).toFixed(2)))));
-  }
-
   function resetGraphView() {
-    setGraphZoom(1);
-    setGraphPan({ x: 0, y: 0 });
-  }
-
-  function handleGraphPointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    if (target.closest(".mindNode")) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    graphDragRef.current = {
-      active: true,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: graphPan.x,
-      originY: graphPan.y
-    };
-    setGraphDragging(true);
-  }
-
-  function handleGraphPointerMove(event: PointerEvent<HTMLDivElement>) {
-    if (!graphDragRef.current.active) return;
-    event.preventDefault();
-    const deltaX = event.clientX - graphDragRef.current.startX;
-    const deltaY = event.clientY - graphDragRef.current.startY;
-    setGraphPan({
-      x: graphDragRef.current.originX + deltaX,
-      y: graphDragRef.current.originY + deltaY
-    });
-  }
-
-  function handleGraphPointerEnd(event: PointerEvent<HTMLDivElement>) {
-    if (!graphDragRef.current.active) return;
-    graphDragRef.current.active = false;
-    setGraphDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    setGraphFlowKey((value) => value + 1);
   }
 
   function jumpToGraphNode(node: GraphNode) {
@@ -2531,10 +2519,10 @@ export default function App() {
               {graphStats ? `${graphStats.nodeCount} 个节点，${graphStats.edgeCount} 条关系` : "局部关系图"}
             </Text>
             <Group gap="xs">
-              <Badge variant="light" color="gray">{Math.round(graphZoom * 100)}%</Badge>
+              <Badge variant="light" color="gray">滚轮缩放 / 拖拽画布</Badge>
               <Tooltip label="重置缩放">
                 <ActionIcon variant="light" color="gray" onClick={resetGraphView} aria-label="重置缩放">
-                  <RotateCcw size={16} />
+                  <RefreshCw size={16} />
                 </ActionIcon>
               </Tooltip>
               <Button size="xs" variant="light" leftSection={<RefreshCw size={14} />} onClick={rebuildKnowledgeGraph} loading={graphLoading}>
@@ -2542,70 +2530,31 @@ export default function App() {
               </Button>
             </Group>
           </Group>
-          <div
-            className={`graphPanel${graphDragging ? " graphPanelDragging" : ""}`}
-            onWheel={handleGraphWheel}
-            onPointerDown={handleGraphPointerDown}
-            onPointerMove={handleGraphPointerMove}
-            onPointerUp={handleGraphPointerEnd}
-            onPointerCancel={handleGraphPointerEnd}
-            onPointerLeave={handleGraphPointerEnd}
-          >
+          <div className="graphPanel">
             {graphPayload.nodes.length ? (
-              <div
-                className="mindMapViewport"
-                style={{
-                  width: graphCanvasSize * graphZoom,
-                  height: graphCanvasSize * graphZoom,
-                  transform: `translate(${graphPan.x}px, ${graphPan.y}px)`
+              <ReactFlow
+                key={graphFlowKey}
+                nodes={graphFlowNodes}
+                edges={graphFlowEdges}
+                fitView
+                fitViewOptions={{ padding: 0.18, minZoom: 0.45, maxZoom: 1.2 }}
+                minZoom={0.25}
+                maxZoom={1.8}
+                nodesDraggable={false}
+                nodesConnectable={false}
+                elementsSelectable={false}
+                panOnDrag
+                zoomOnScroll
+                zoomOnPinch
+                onNodeClick={(_, node) => {
+                  const graphNode = graphNodeById.get(node.id);
+                  if (graphNode) jumpToGraphNode(graphNode);
                 }}
               >
-                <div
-                  className="mindMap"
-                  style={{
-                    width: graphCanvasSize,
-                    height: graphCanvasSize,
-                    transform: `scale(${graphZoom})`
-                  }}
-                >
-                  <div className="mindMapLines" aria-hidden="true">
-                    {graphLayoutEdges.map((edge) => (
-                      <span
-                        key={edge.id}
-                        style={{
-                          width: edge.length,
-                          transform: `rotate(${edge.angle}deg)`
-                        }}
-                      />
-                    ))}
-                  </div>
-                  {graphCenterNode && (
-                    <button
-                      type="button"
-                      className={`mindNode mindNode-center mindNode-${graphCenterNode.type}`}
-                      style={{ left: graphCanvasCenter, top: graphCanvasCenter }}
-                      onClick={() => jumpToGraphNode(graphCenterNode)}
-                    >
-                      <span>{graphCenterNode.type === "category" ? "分类" : graphCenterNode.type === "tag" ? "标签" : "文件"}</span>
-                      <strong>{graphCenterNode.name}</strong>
-                    </button>
-                  )}
-                  {graphLayoutNodes.map(({ node, x, y }) => {
-                    return (
-                      <button
-                        key={node.id}
-                        type="button"
-                        className={`mindNode mindNode-child mindNode-${node.type}`}
-                        style={{ left: x, top: y }}
-                        onClick={() => jumpToGraphNode(node)}
-                      >
-                        <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
-                        <strong>{node.name}</strong>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+                <Background color="#d9e9e6" gap={28} size={1} />
+                <MiniMap pannable zoomable nodeStrokeWidth={3} className="graphMiniMap" />
+                <Controls showInteractive={false} />
+              </ReactFlow>
             ) : (
               <Stack className="emptyState graphEmpty" align="center" justify="center">
                 <Text fw={800}>暂无图谱数据</Text>

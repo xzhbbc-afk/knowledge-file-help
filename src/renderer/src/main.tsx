@@ -1,5 +1,6 @@
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
+import "@xyflow/react/dist/style.css";
 import "./styles.css";
 
 import { MantineProvider, createTheme } from "@mantine/core";
