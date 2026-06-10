@@ -47,9 +47,11 @@ import {
   Ellipsis,
   Power,
   Download,
-  Network
+  Network,
+  RotateCcw
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { WheelEvent } from "react";
 import appLogo from "../../../assets/local-knowledge-logo-rounded-transparent.png";
 
 const seededCategoryIds = new Set([
@@ -66,6 +68,9 @@ const seededTags = new Set(["废水", "废气", "噪声", "固废", "报告", "�
 const ocrEnabledExts = new Set(["png", "jpg", "jpeg", "webp", "bmp", "pdf"]);
 const latinTokenPattern = /[a-z0-9_]{2,}/g;
 const cjkSequencePattern = /[\u3400-\u9fff]+/g;
+const graphZoomMin = 0.55;
+const graphZoomMax = 1.8;
+const graphZoomStep = 0.08;
 
 type CategoryDraft = {
   id: string;
@@ -338,6 +343,7 @@ export default function App() {
   const [graphPayload, setGraphPayload] = useState<GraphPayload>(emptyGraph);
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
+  const [graphZoom, setGraphZoom] = useState(1);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -1070,6 +1076,7 @@ export default function App() {
 
   async function openGraphModal() {
     setGraphModalOpen(true);
+    setGraphZoom(1);
     setGraphLoading(true);
     try {
       const payload = selectedFileId
@@ -1082,6 +1089,12 @@ export default function App() {
     } finally {
       setGraphLoading(false);
     }
+  }
+
+  function handleGraphWheel(event: WheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    setGraphZoom((value) => Math.min(graphZoomMax, Math.max(graphZoomMin, Number((value + direction * graphZoomStep).toFixed(2)))));
   }
 
   function jumpToGraphNode(node: GraphNode) {
@@ -2422,13 +2435,21 @@ export default function App() {
             <Text size="sm" c="dimmed">
               {graphStats ? `${graphStats.nodeCount} 个节点，${graphStats.edgeCount} 条关系` : "局部关系图"}
             </Text>
-            <Button size="xs" variant="light" leftSection={<RefreshCw size={14} />} onClick={rebuildKnowledgeGraph} loading={graphLoading}>
-              重建
-            </Button>
+            <Group gap="xs">
+              <Badge variant="light" color="gray">{Math.round(graphZoom * 100)}%</Badge>
+              <Tooltip label="重置缩放">
+                <ActionIcon variant="light" color="gray" onClick={() => setGraphZoom(1)} aria-label="重置缩放">
+                  <RotateCcw size={16} />
+                </ActionIcon>
+              </Tooltip>
+              <Button size="xs" variant="light" leftSection={<RefreshCw size={14} />} onClick={rebuildKnowledgeGraph} loading={graphLoading}>
+                重建
+              </Button>
+            </Group>
           </Group>
-          <div className="graphPanel">
+          <div className="graphPanel" onWheel={handleGraphWheel}>
             {graphPayload.nodes.length ? (
-              <div className="mindMap">
+              <div className="mindMap" style={{ transform: `scale(${graphZoom})` }}>
                 <div className="mindMapLines" aria-hidden="true">
                   {graphMindNodes.map((node, index) => {
                     const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
