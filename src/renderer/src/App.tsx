@@ -50,8 +50,8 @@ import {
   Network,
   RotateCcw
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent, WheelEvent } from "react";
 import appLogo from "../../../assets/local-knowledge-logo-rounded-transparent.png";
 
 const seededCategoryIds = new Set([
@@ -72,6 +72,7 @@ const graphZoomMin = 0.55;
 const graphZoomMax = 1.8;
 const graphZoomStep = 0.08;
 const graphCanvasSize = 980;
+const graphCanvasCenter = graphCanvasSize / 2;
 
 type CategoryDraft = {
   id: string;
@@ -345,6 +346,8 @@ export default function App() {
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphZoom, setGraphZoom] = useState(1);
+  const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
+  const [graphDragging, setGraphDragging] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [pendingImportItems, setPendingImportItems] = useState<ImportItem[]>([]);
@@ -358,6 +361,7 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState<OcrProgressState | null>(null);
   const [contentIndexDetail, setContentIndexDetail] = useState<ContentIndexDetail | null>(null);
   const [contentIndexLoading, setContentIndexLoading] = useState(false);
+  const graphDragRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
   const categoryById = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
 
   function contentIndexLabel(file: FileRecord) {
@@ -476,10 +480,58 @@ export default function App() {
     if (graphNodeById.has(categoryNodeId)) return graphNodeById.get(categoryNodeId) || null;
     return graphPayload.nodes[0] || null;
   }, [graphNodeById, graphPayload.nodes, selectedCategoryId, selectedGraphFileNodeId]);
-  const graphMindNodes = useMemo(() => {
+  const graphLayoutNodes = useMemo(() => {
     if (!graphCenterNode) return [];
-    return graphPayload.nodes.filter((node) => node.id !== graphCenterNode.id).slice(0, 14);
-  }, [graphCenterNode, graphPayload.nodes]);
+    const connectedWeights = new Map<string, number>();
+    graphPayload.edges.forEach((edge) => {
+      if (edge.source === graphCenterNode.id) {
+        connectedWeights.set(edge.target, Math.max(connectedWeights.get(edge.target) || 0, edge.weight || 1));
+      }
+      if (edge.target === graphCenterNode.id) {
+        connectedWeights.set(edge.source, Math.max(connectedWeights.get(edge.source) || 0, edge.weight || 1));
+      }
+    });
+
+    const byPriority = (a: GraphNode, b: GraphNode) => {
+      const weightDiff = (connectedWeights.get(b.id) || 0) - (connectedWeights.get(a.id) || 0);
+      if (weightDiff) return weightDiff;
+      return a.name.localeCompare(b.name, "zh-CN");
+    };
+    const nodes = graphPayload.nodes.filter((node) => node.id !== graphCenterNode.id);
+    const categories = nodes.filter((node) => node.type === "category").sort(byPriority).slice(0, 6);
+    const files = nodes.filter((node) => node.type === "file").sort(byPriority).slice(0, 10);
+    const tags = nodes.filter((node) => node.type === "tag").sort(byPriority).slice(0, 6);
+    const layout: Array<{ node: GraphNode; x: number; y: number; layer: "category" | "file" | "tag" }> = [];
+
+    const pushRow = (rowNodes: GraphNode[], y: number, minX = 150, maxX = 830) => {
+      rowNodes.forEach((node, index) => {
+        const x = rowNodes.length === 1 ? graphCanvasCenter : minX + (index * (maxX - minX)) / (rowNodes.length - 1);
+        layout.push({ node, x, y, layer: node.type as "category" | "file" | "tag" });
+      });
+    };
+
+    pushRow(categories, 150, 160, 820);
+    if (files.length <= 5) {
+      pushRow(files, 610, 120, 860);
+    } else {
+      const firstRowLength = Math.ceil(files.length / 2);
+      pushRow(files.slice(0, firstRowLength), 390, 120, 860);
+      pushRow(files.slice(firstRowLength), 610, 170, 810);
+    }
+    pushRow(tags, 830, 180, 800);
+    return layout;
+  }, [graphCenterNode, graphPayload.edges, graphPayload.nodes]);
+  const graphLayoutEdges = useMemo(() => (
+    graphLayoutNodes.map((item) => {
+      const dx = item.x - graphCanvasCenter;
+      const dy = item.y - graphCanvasCenter;
+      return {
+        id: item.node.id,
+        length: Math.sqrt(dx * dx + dy * dy),
+        angle: Math.atan2(dy, dx) * 180 / Math.PI
+      };
+    })
+  ), [graphLayoutNodes]);
 
   useEffect(() => {
     let canceled = false;
@@ -1078,6 +1130,7 @@ export default function App() {
   async function openGraphModal() {
     setGraphModalOpen(true);
     setGraphZoom(1);
+    setGraphPan({ x: 0, y: 0 });
     setGraphLoading(true);
     try {
       const payload = selectedFileId
@@ -1096,6 +1149,47 @@ export default function App() {
     event.preventDefault();
     const direction = event.deltaY < 0 ? 1 : -1;
     setGraphZoom((value) => Math.min(graphZoomMax, Math.max(graphZoomMin, Number((value + direction * graphZoomStep).toFixed(2)))));
+  }
+
+  function resetGraphView() {
+    setGraphZoom(1);
+    setGraphPan({ x: 0, y: 0 });
+  }
+
+  function handleGraphPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest(".mindNode")) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    graphDragRef.current = {
+      active: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: graphPan.x,
+      originY: graphPan.y
+    };
+    setGraphDragging(true);
+  }
+
+  function handleGraphPointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (!graphDragRef.current.active) return;
+    event.preventDefault();
+    const deltaX = event.clientX - graphDragRef.current.startX;
+    const deltaY = event.clientY - graphDragRef.current.startY;
+    setGraphPan({
+      x: graphDragRef.current.originX + deltaX,
+      y: graphDragRef.current.originY + deltaY
+    });
+  }
+
+  function handleGraphPointerEnd(event: PointerEvent<HTMLDivElement>) {
+    if (!graphDragRef.current.active) return;
+    graphDragRef.current.active = false;
+    setGraphDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   function jumpToGraphNode(node: GraphNode) {
@@ -2439,7 +2533,7 @@ export default function App() {
             <Group gap="xs">
               <Badge variant="light" color="gray">{Math.round(graphZoom * 100)}%</Badge>
               <Tooltip label="重置缩放">
-                <ActionIcon variant="light" color="gray" onClick={() => setGraphZoom(1)} aria-label="重置缩放">
+                <ActionIcon variant="light" color="gray" onClick={resetGraphView} aria-label="重置缩放">
                   <RotateCcw size={16} />
                 </ActionIcon>
               </Tooltip>
@@ -2448,13 +2542,22 @@ export default function App() {
               </Button>
             </Group>
           </Group>
-          <div className="graphPanel" onWheel={handleGraphWheel}>
+          <div
+            className={`graphPanel${graphDragging ? " graphPanelDragging" : ""}`}
+            onWheel={handleGraphWheel}
+            onPointerDown={handleGraphPointerDown}
+            onPointerMove={handleGraphPointerMove}
+            onPointerUp={handleGraphPointerEnd}
+            onPointerCancel={handleGraphPointerEnd}
+            onPointerLeave={handleGraphPointerEnd}
+          >
             {graphPayload.nodes.length ? (
               <div
                 className="mindMapViewport"
                 style={{
                   width: graphCanvasSize * graphZoom,
-                  height: graphCanvasSize * graphZoom
+                  height: graphCanvasSize * graphZoom,
+                  transform: `translate(${graphPan.x}px, ${graphPan.y}px)`
                 }}
               >
                 <div
@@ -2466,29 +2569,34 @@ export default function App() {
                   }}
                 >
                   <div className="mindMapLines" aria-hidden="true">
-                    {graphMindNodes.map((node, index) => {
-                      const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
-                      return <span key={node.id} style={{ transform: `rotate(${angle}deg)` }} />;
-                    })}
+                    {graphLayoutEdges.map((edge) => (
+                      <span
+                        key={edge.id}
+                        style={{
+                          width: edge.length,
+                          transform: `rotate(${edge.angle}deg)`
+                        }}
+                      />
+                    ))}
                   </div>
                   {graphCenterNode && (
                     <button
                       type="button"
                       className={`mindNode mindNode-center mindNode-${graphCenterNode.type}`}
+                      style={{ left: graphCanvasCenter, top: graphCanvasCenter }}
                       onClick={() => jumpToGraphNode(graphCenterNode)}
                     >
                       <span>{graphCenterNode.type === "category" ? "分类" : graphCenterNode.type === "tag" ? "标签" : "文件"}</span>
                       <strong>{graphCenterNode.name}</strong>
                     </button>
                   )}
-                  {graphMindNodes.map((node, index) => {
-                    const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
+                  {graphLayoutNodes.map(({ node, x, y }) => {
                     return (
                       <button
                         key={node.id}
                         type="button"
                         className={`mindNode mindNode-child mindNode-${node.type}`}
-                        style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translate(320px) rotate(${-angle}deg)` }}
+                        style={{ left: x, top: y }}
                         onClick={() => jumpToGraphNode(node)}
                       >
                         <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>

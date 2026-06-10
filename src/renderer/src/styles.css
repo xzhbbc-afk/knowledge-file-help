@@ -294,8 +294,15 @@ body {
   border: 1px solid #e6e9ef;
   border-radius: 8px;
   background: #f8fafc;
+  cursor: grab;
   display: flex;
   overflow: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.graphPanelDragging {
+  cursor: grabbing;
 }
 
 .graphDrawerBody {
@@ -315,6 +322,7 @@ body {
   position: relative;
   flex: 0 0 auto;
   margin: auto;
+  transition: transform 80ms ease-out;
 }
 
 .mindMap {
@@ -379,6 +387,7 @@ body {
   width: 168px;
   min-height: 78px;
   padding: 10px;
+  transform: translate(-50%, -50%);
   z-index: 1;
 }
 
