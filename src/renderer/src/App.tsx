@@ -71,6 +71,7 @@ const cjkSequencePattern = /[\u3400-\u9fff]+/g;
 const graphZoomMin = 0.55;
 const graphZoomMax = 1.8;
 const graphZoomStep = 0.08;
+const graphCanvasSize = 980;
 
 type CategoryDraft = {
   id: string;
@@ -2449,38 +2450,53 @@ export default function App() {
           </Group>
           <div className="graphPanel" onWheel={handleGraphWheel}>
             {graphPayload.nodes.length ? (
-              <div className="mindMap" style={{ transform: `scale(${graphZoom})` }}>
-                <div className="mindMapLines" aria-hidden="true">
+              <div
+                className="mindMapViewport"
+                style={{
+                  width: graphCanvasSize * graphZoom,
+                  height: graphCanvasSize * graphZoom
+                }}
+              >
+                <div
+                  className="mindMap"
+                  style={{
+                    width: graphCanvasSize,
+                    height: graphCanvasSize,
+                    transform: `scale(${graphZoom})`
+                  }}
+                >
+                  <div className="mindMapLines" aria-hidden="true">
+                    {graphMindNodes.map((node, index) => {
+                      const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
+                      return <span key={node.id} style={{ transform: `rotate(${angle}deg)` }} />;
+                    })}
+                  </div>
+                  {graphCenterNode && (
+                    <button
+                      type="button"
+                      className={`mindNode mindNode-center mindNode-${graphCenterNode.type}`}
+                      onClick={() => jumpToGraphNode(graphCenterNode)}
+                    >
+                      <span>{graphCenterNode.type === "category" ? "分类" : graphCenterNode.type === "tag" ? "标签" : "文件"}</span>
+                      <strong>{graphCenterNode.name}</strong>
+                    </button>
+                  )}
                   {graphMindNodes.map((node, index) => {
                     const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
-                    return <span key={node.id} style={{ transform: `rotate(${angle}deg)` }} />;
+                    return (
+                      <button
+                        key={node.id}
+                        type="button"
+                        className={`mindNode mindNode-child mindNode-${node.type}`}
+                        style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translate(320px) rotate(${-angle}deg)` }}
+                        onClick={() => jumpToGraphNode(node)}
+                      >
+                        <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
+                        <strong>{node.name}</strong>
+                      </button>
+                    );
                   })}
                 </div>
-                {graphCenterNode && (
-                  <button
-                    type="button"
-                    className={`mindNode mindNode-center mindNode-${graphCenterNode.type}`}
-                    onClick={() => jumpToGraphNode(graphCenterNode)}
-                  >
-                    <span>{graphCenterNode.type === "category" ? "分类" : graphCenterNode.type === "tag" ? "标签" : "文件"}</span>
-                    <strong>{graphCenterNode.name}</strong>
-                  </button>
-                )}
-                {graphMindNodes.map((node, index) => {
-                  const angle = (360 / Math.max(graphMindNodes.length, 1)) * index - 90;
-                  return (
-                    <button
-                      key={node.id}
-                      type="button"
-                      className={`mindNode mindNode-child mindNode-${node.type}`}
-                      style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translate(320px) rotate(${-angle}deg)` }}
-                      onClick={() => jumpToGraphNode(node)}
-                    >
-                      <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
-                      <strong>{node.name}</strong>
-                    </button>
-                  );
-                })}
               </div>
             ) : (
               <Stack className="emptyState graphEmpty" align="center" justify="center">

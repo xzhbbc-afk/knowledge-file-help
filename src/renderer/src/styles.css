@@ -294,7 +294,8 @@ body {
   border: 1px solid #e6e9ef;
   border-radius: 8px;
   background: #f8fafc;
-  overflow: hidden;
+  display: flex;
+  overflow: auto;
 }
 
 .graphDrawerBody {
@@ -310,12 +311,16 @@ body {
   min-height: 0;
 }
 
+.mindMapViewport {
+  position: relative;
+  flex: 0 0 auto;
+  margin: auto;
+}
+
 .mindMap {
   position: relative;
-  height: 100%;
-  min-height: 660px;
-  overflow: hidden;
-  transform-origin: center center;
+  overflow: visible;
+  transform-origin: 0 0;
   transition: transform 120ms ease-out;
   will-change: transform;
 }
