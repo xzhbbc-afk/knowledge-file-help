@@ -530,7 +530,9 @@ export default function App() {
       data: {
         label: (
           <div className={`graphFlowNode graphFlowNode-${node.type}${isCenter ? " graphFlowNodeCenter" : ""}`}>
-            <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
+            <div className="graphFlowNodeType">
+              <span>{node.type === "category" ? "分类" : node.type === "tag" ? "标签" : "文件"}</span>
+            </div>
             <strong>{node.name}</strong>
           </div>
         )
@@ -557,9 +559,9 @@ export default function App() {
         target: node.id,
         animated: relation?.type === "related_file",
         label: relation?.reason || "",
-        style: { stroke: relation?.type === "related_file" ? "#5b7cfa" : "#9fcfc7", strokeWidth: relation?.type === "related_file" ? 2 : 1.5 },
-        labelStyle: { fill: "#64748b", fontSize: 11, fontWeight: 700 },
-        labelBgStyle: { fill: "#f8fafc", fillOpacity: 0.86 },
+        style: { stroke: relation?.type === "related_file" ? "#5b7cfa" : "#77b7ad", strokeWidth: relation?.type === "related_file" ? 2 : 1.5 },
+        labelStyle: { fill: "#526071", fontSize: 11, fontWeight: 700 },
+        labelBgStyle: { fill: "#ffffff", fillOpacity: 0.92 },
         type: "smoothstep"
       };
     });
@@ -2546,13 +2548,25 @@ export default function App() {
                 panOnDrag
                 zoomOnScroll
                 zoomOnPinch
+                proOptions={{ hideAttribution: true }}
                 onNodeClick={(_, node) => {
                   const graphNode = graphNodeById.get(node.id);
                   if (graphNode) jumpToGraphNode(graphNode);
                 }}
               >
                 <Background color="#d9e9e6" gap={28} size={1} />
-                <MiniMap pannable zoomable nodeStrokeWidth={3} className="graphMiniMap" />
+                <MiniMap
+                  pannable
+                  zoomable
+                  nodeStrokeWidth={3}
+                  nodeColor={(node) => {
+                    if (node.id.startsWith("category:")) return "#9fd8d0";
+                    if (node.id.startsWith("tag:")) return "#ffd19f";
+                    return "#bdd7ff";
+                  }}
+                  maskColor="rgba(241, 245, 249, 0.72)"
+                  className="graphMiniMap"
+                />
                 <Controls showInteractive={false} />
               </ReactFlow>
             ) : (
@@ -2576,12 +2590,14 @@ export default function App() {
                       const target = graphNodeById.get(edge.target);
                       return (
                         <Group key={edge.id} justify="space-between" gap="sm" wrap="nowrap" className="graphEdgeRow">
-                          <Text size="sm" truncate>
-                            {source?.name || edge.source} {"->"} {target?.name || edge.target}
-                          </Text>
-                          <Group gap={6} wrap="nowrap">
+                          <div className="graphEdgeText">
+                            <Text size="sm" fw={700} truncate>
+                              {source?.name || edge.source} {"->"} {target?.name || edge.target}
+                            </Text>
+                            <Text size="xs" c="dimmed" lineClamp={1}>{edge.reason || edge.type}</Text>
+                          </div>
+                          <Group gap={6} wrap="nowrap" className="graphEdgeMeta">
                             <Badge variant="light" color={edge.type === "related_file" ? "blue" : "gray"}>{edge.weight}</Badge>
-                            <Text size="xs" c="dimmed">{edge.reason || edge.type}</Text>
                           </Group>
                         </Group>
                       );

@@ -290,9 +290,9 @@ body {
 .graphPanel {
   flex: 1 1 auto;
   min-height: 660px;
-  border: 1px solid #e6e9ef;
+  border: 1px solid #dce8e7;
   border-radius: 8px;
-  background: #f8fafc;
+  background: #f7faf9;
   overflow: hidden;
 }
 
@@ -310,7 +310,9 @@ body {
 }
 
 .graphPanel .react-flow {
-  background: linear-gradient(180deg, #f9fbfc 0%, #f5f8fa 100%);
+  background:
+    radial-gradient(circle at 50% 46%, rgba(13, 148, 136, 0.09), transparent 34%),
+    linear-gradient(180deg, #fbfdfc 0%, #f4f8f7 100%);
 }
 
 .graphPanel .react-flow__pane {
@@ -331,13 +333,26 @@ body {
 
 .graphPanel .react-flow__edge-path {
   stroke-linecap: round;
+  filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.08));
+}
+
+.graphPanel .react-flow__edge-textbg {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 3px;
+}
+
+.graphPanel .react-flow__edge-text {
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 3px;
 }
 
 .graphPanel .react-flow__controls {
   overflow: hidden;
   border: 1px solid #dfe7ef;
   border-radius: 8px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
 }
 
 .graphPanel .react-flow__controls-button {
@@ -349,34 +364,66 @@ body {
   border: 1px solid #dfe7ef;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.1);
 }
 
 .graphFlowNode {
-  width: 184px;
-  min-height: 78px;
-  padding: 12px;
-  border: 1px solid #dce4ec;
+  position: relative;
+  width: 188px;
+  min-height: 82px;
+  padding: 13px 14px 12px 16px;
+  border: 1px solid #dce7ef;
   border-radius: 8px;
   background: #ffffff;
   color: #1f2937;
   cursor: pointer;
   text-align: left;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.11);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.graphFlowNode::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: #9fb7c8;
+  content: "";
+}
+
+.graphFlowNode:hover {
+  border-color: #8ecdc4;
+  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.16);
+  transform: translateY(-1px);
 }
 
 .graphFlowNodeCenter {
-  width: 230px;
-  min-height: 108px;
-  padding: 16px;
+  width: 238px;
+  min-height: 112px;
+  padding: 17px 18px 16px 20px;
   border-color: #0f766e;
   background: #f0fbf8;
-  box-shadow: 0 18px 36px rgba(15, 118, 110, 0.14);
+  box-shadow: 0 22px 48px rgba(15, 118, 110, 0.18);
 }
 
-.graphFlowNode span {
-  display: block;
-  margin-bottom: 4px;
-  color: #64748b;
+.graphFlowNodeCenter::before {
+  background: #0f766e;
+}
+
+.graphFlowNodeType {
+  margin-bottom: 6px;
+}
+
+.graphFlowNodeType span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #526071;
   font-size: 11px;
   font-weight: 800;
 }
@@ -398,12 +445,24 @@ body {
   border-color: #bdd7ff;
 }
 
+.graphFlowNode-file::before {
+  background: #6ea8fe;
+}
+
 .graphFlowNode-category {
   border-color: #9fd8d0;
 }
 
+.graphFlowNode-category::before {
+  background: #0f766e;
+}
+
 .graphFlowNode-tag {
   border-color: #ffd19f;
+}
+
+.graphFlowNode-tag::before {
+  background: #f59f00;
 }
 
 .graphEmpty {
@@ -412,12 +471,23 @@ body {
 
 .graphRelationsPanel {
   flex: 0 0 auto;
+  border-color: #e1e8ef;
+  background: #ffffff;
 }
 
 .graphEdgeRow {
-  min-height: 30px;
-  padding-bottom: 6px;
+  min-height: 42px;
+  padding: 8px 0;
   border-bottom: 1px solid #eef2f6;
+}
+
+.graphEdgeText {
+  min-width: 0;
+  flex: 1;
+}
+
+.graphEdgeMeta {
+  flex: 0 0 auto;
 }
 
 .importFileName {
