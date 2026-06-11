@@ -86,6 +86,49 @@ const OCR_NOISE_PATTERNS = [
 ];
 const OCR_PDF_PAGE_LIMIT = 20;
 const GRAPH_RELATED_FILE_LIMIT = 8;
+const GRAPH_CONTENT_FEATURE_LIMIT = 50;
+const GRAPH_NOTE_FEATURE_LIMIT = 30;
+const GRAPH_MIN_RELATED_SCORE = 10;
+const GRAPH_MIN_SHARED_FEATURES = 2;
+const GRAPH_COMMON_FEATURE_RATIO = 0.3;
+const GRAPH_STOP_WORDS = new Set([
+  "报告",
+  "文件",
+  "项目",
+  "资料",
+  "文档",
+  "说明",
+  "使用",
+  "管理",
+  "标准",
+  "测试",
+  "知识",
+  "规范",
+  "记录",
+  "内容",
+  "附件",
+  "版本",
+  "用户",
+  "系统",
+  "相关",
+  "要求",
+  "the",
+  "and",
+  "for",
+  "with",
+  "pdf",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx"
+]);
+const GRAPH_FEATURE_WEIGHTS = {
+  filename: 6,
+  tag: 8,
+  category: 4,
+  note: 5,
+  content: 1
+};
 
 let SQLPromise;
 let pdfjsPromise;
@@ -648,6 +691,154 @@ async function createStore(userDataPath) {
     return result;
   }
 
+  function categoryNamesForGraph(categories, categoryId) {
+    if (!categoryId) return [];
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) return [];
+    return [...categoryNamesForGraph(categories, category.parentId), category.name].filter(Boolean);
+  }
+
+  function graphFeatureTokens(value, limit = Infinity) {
+    const rawTokens = tokenizeContent(value);
+    const result = [];
+    const seen = new Set();
+    rawTokens.forEach((token) => {
+      const normalized = String(token || "").toLowerCase().trim();
+      if (!normalized || seen.has(normalized)) return;
+      if (GRAPH_STOP_WORDS.has(normalized)) return;
+      if (/^\d+$/.test(normalized)) return;
+      if (/^[a-z0-9_]+$/.test(normalized) && normalized.length < 3) return;
+      if (/^[\u3400-\u9fff]+$/.test(normalized) && normalized.length < 2) return;
+      seen.add(normalized);
+      result.push(normalized);
+    });
+    return result.slice(0, limit);
+  }
+
+  function addGraphFeature(features, term, source, weight) {
+    const normalized = String(term || "").toLowerCase().trim();
+    if (!normalized || GRAPH_STOP_WORDS.has(normalized)) return;
+    const existing = features.get(normalized) || { weight: 0, sources: new Set() };
+    const sourceCount = existing.sources.size;
+    existing.sources.add(source);
+    const sourceBonus = existing.sources.size > sourceCount ? weight : Math.min(weight, 2);
+    existing.weight = Math.min(existing.weight + sourceBonus, 24);
+    features.set(normalized, existing);
+  }
+
+  function graphFeaturesForFile(file, categories, contentTerms) {
+    const features = new Map();
+    const filename = path.parse(file.name || "").name;
+    graphFeatureTokens(filename).forEach((term) => addGraphFeature(features, term, "filename", GRAPH_FEATURE_WEIGHTS.filename));
+    (file.tags || []).forEach((tag) => {
+      graphFeatureTokens(tag).forEach((term) => addGraphFeature(features, term, "tag", GRAPH_FEATURE_WEIGHTS.tag));
+    });
+    categoryNamesForGraph(categories, file.categoryId).forEach((name) => {
+      graphFeatureTokens(name).forEach((term) => addGraphFeature(features, term, "category", GRAPH_FEATURE_WEIGHTS.category));
+    });
+    graphFeatureTokens(file.note || "", GRAPH_NOTE_FEATURE_LIMIT)
+      .forEach((term) => addGraphFeature(features, term, "note", GRAPH_FEATURE_WEIGHTS.note));
+    [...(contentTerms || new Set())]
+      .slice(0, GRAPH_CONTENT_FEATURE_LIMIT)
+      .forEach((term) => addGraphFeature(features, term, "content", GRAPH_FEATURE_WEIGHTS.content));
+    return features;
+  }
+
+  function graphReasonForSharedFeatures(shared) {
+    const bySource = {
+      tag: [],
+      category: [],
+      filename: [],
+      note: [],
+      content: []
+    };
+    shared.forEach((item) => {
+      const sources = new Set([...item.left.sources, ...item.right.sources]);
+      ["tag", "category", "filename", "note", "content"].forEach((source) => {
+        if (sources.has(source) && bySource[source].length < 3) bySource[source].push(item.term);
+      });
+    });
+
+    const parts = [];
+    if (bySource.tag.length) parts.push(`同标签：${bySource.tag.join("、")}`);
+    if (bySource.category.length) parts.push(`同分类词：${bySource.category.join("、")}`);
+    if (bySource.filename.length) parts.push(`文件名共同词：${bySource.filename.join("、")}`);
+    if (bySource.note.length) parts.push(`备注共同词：${bySource.note.join("、")}`);
+    if (bySource.content.length) parts.push(`正文共同词：${bySource.content.join("、")}`);
+    return parts.slice(0, 4).join("；");
+  }
+
+  function buildRelatedFileItems(files, categories, fileTerms) {
+    const featureByFileId = new Map();
+    const inverted = new Map();
+
+    files.forEach((file) => {
+      const features = graphFeaturesForFile(file, categories, fileTerms.get(file.id) || new Set());
+      featureByFileId.set(file.id, features);
+      features.forEach((_feature, term) => {
+        inverted.set(term, [...(inverted.get(term) || []), file.id]);
+      });
+    });
+
+    const maxCommonCount = Math.max(8, Math.floor(files.length * GRAPH_COMMON_FEATURE_RATIO));
+    const pairMap = new Map();
+    inverted.forEach((fileIds, term) => {
+      if (fileIds.length < 2 || fileIds.length > maxCommonCount) return;
+      for (let leftIndex = 0; leftIndex < fileIds.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < fileIds.length; rightIndex += 1) {
+          const leftId = fileIds[leftIndex];
+          const rightId = fileIds[rightIndex];
+          const key = leftId < rightId ? `${leftId}\u0000${rightId}` : `${rightId}\u0000${leftId}`;
+          const pair = pairMap.get(key) || { leftId, rightId, shared: [] };
+          const leftFeature = featureByFileId.get(leftId)?.get(term);
+          const rightFeature = featureByFileId.get(rightId)?.get(term);
+          if (leftFeature && rightFeature) {
+            pair.shared.push({
+              term,
+              left: leftFeature,
+              right: rightFeature,
+              score: Math.min(leftFeature.weight, rightFeature.weight)
+            });
+          }
+          pairMap.set(key, pair);
+        }
+      }
+    });
+
+    const filesById = new Map(files.map((file) => [file.id, file]));
+    const relatedBySource = new Map();
+    pairMap.forEach((pair) => {
+      const left = filesById.get(pair.leftId);
+      const right = filesById.get(pair.rightId);
+      if (!left || !right) return;
+      const shared = pair.shared.sort((a, b) => b.score - a.score);
+      const hasExplicitSignal = shared.some((item) => {
+        const sources = new Set([...item.left.sources, ...item.right.sources]);
+        return sources.has("tag") || sources.has("category") || sources.has("filename") || sources.has("note");
+      });
+      const explicitSharedCount = shared.filter((item) => {
+        const sources = new Set([...item.left.sources, ...item.right.sources]);
+        return sources.has("tag") || sources.has("category") || sources.has("filename") || sources.has("note");
+      }).length;
+      const score = shared.reduce((total, item) => total + item.score, 0);
+
+      if (!hasExplicitSignal) return;
+      if (shared.length < GRAPH_MIN_SHARED_FEATURES && explicitSharedCount < 1) return;
+      if (score < GRAPH_MIN_RELATED_SCORE) return;
+
+      const item = {
+        left,
+        right,
+        score: Number(score.toFixed(2)),
+        reason: graphReasonForSharedFeatures(shared.slice(0, 8)) || "综合特征相似"
+      };
+      relatedBySource.set(left.id, [...(relatedBySource.get(left.id) || []), item]);
+      relatedBySource.set(right.id, [...(relatedBySource.get(right.id) || []), item]);
+    });
+
+    return relatedBySource;
+  }
+
   function rebuildGraph(db, data = loadFromDatabase(db)) {
     const normalized = normalizeData(data);
     const updatedAt = new Date().toISOString();
@@ -748,49 +939,7 @@ async function createStore(userDataPath) {
     });
 
     const fileTerms = termsForFiles(db, normalized.files.map((file) => file.id));
-    normalized.files.forEach((file) => {
-      const terms = fileTerms.get(file.id) || new Set();
-      tokenizeContent(`${file.name} ${file.note || ""}`).forEach((term) => terms.add(term));
-    });
-
-    const relatedBySource = new Map();
-    for (let leftIndex = 0; leftIndex < normalized.files.length; leftIndex += 1) {
-      const left = normalized.files[leftIndex];
-      const leftTerms = fileTerms.get(left.id) || new Set();
-      for (let rightIndex = leftIndex + 1; rightIndex < normalized.files.length; rightIndex += 1) {
-        const right = normalized.files[rightIndex];
-        let score = 0;
-        const reasons = [];
-
-        if (left.categoryId && left.categoryId === right.categoryId) {
-          score += 2;
-          reasons.push("同分类");
-        }
-
-        const sharedTags = (left.tags || []).filter((tag) => (right.tags || []).includes(tag));
-        if (sharedTags.length) {
-          score += sharedTags.length * 3;
-          reasons.push(`同标签：${sharedTags.slice(0, 3).join("、")}`);
-        }
-
-        const rightTerms = fileTerms.get(right.id) || new Set();
-        const sharedTerms = [...leftTerms].filter((term) => rightTerms.has(term)).slice(0, 6);
-        if (sharedTerms.length) {
-          score += Math.min(sharedTerms.length, 6);
-          reasons.push(`关键词：${sharedTerms.slice(0, 4).join("、")}`);
-        }
-
-        if (score < 4) continue;
-        const item = {
-          left,
-          right,
-          score,
-          reason: reasons.join("；")
-        };
-        relatedBySource.set(left.id, [...(relatedBySource.get(left.id) || []), item]);
-        relatedBySource.set(right.id, [...(relatedBySource.get(right.id) || []), item]);
-      }
-    }
+    const relatedBySource = buildRelatedFileItems(normalized.files, normalized.categories, fileTerms);
 
     const inserted = new Set();
     relatedBySource.forEach((items) => {
