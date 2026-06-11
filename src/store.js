@@ -112,6 +112,9 @@ const GRAPH_STOP_WORDS = new Set([
   "系统",
   "相关",
   "要求",
+  "扫描",
+  "入库",
+  "目录",
   "the",
   "and",
   "for",
@@ -129,6 +132,13 @@ const GRAPH_FEATURE_WEIGHTS = {
   note: 5,
   content: 1
 };
+const SYSTEM_NOTE_PATTERNS = [
+  /^从知识库目录扫描入库$/,
+  /^从知识库目录扫描入库[。.]?$/,
+  /^扫描入库$/,
+  /^自动扫描入库$/,
+  /^由系统扫描入库$/
+];
 
 let SQLPromise;
 let pdfjsPromise;
@@ -715,6 +725,13 @@ async function createStore(userDataPath) {
     return result.slice(0, limit);
   }
 
+  function userNoteForGraph(note) {
+    const text = String(note || "").trim();
+    if (!text) return "";
+    if (SYSTEM_NOTE_PATTERNS.some((pattern) => pattern.test(text))) return "";
+    return text;
+  }
+
   function addGraphFeature(features, term, source, weight) {
     const normalized = String(term || "").toLowerCase().trim();
     if (!normalized || GRAPH_STOP_WORDS.has(normalized)) return;
@@ -736,7 +753,7 @@ async function createStore(userDataPath) {
     categoryNamesForGraph(categories, file.categoryId).forEach((name) => {
       graphFeatureTokens(name).forEach((term) => addGraphFeature(features, term, "category", GRAPH_FEATURE_WEIGHTS.category));
     });
-    graphFeatureTokens(file.note || "", GRAPH_NOTE_FEATURE_LIMIT)
+    graphFeatureTokens(userNoteForGraph(file.note), GRAPH_NOTE_FEATURE_LIMIT)
       .forEach((term) => addGraphFeature(features, term, "note", GRAPH_FEATURE_WEIGHTS.note));
     [...(contentTerms || new Set())]
       .slice(0, GRAPH_CONTENT_FEATURE_LIMIT)
