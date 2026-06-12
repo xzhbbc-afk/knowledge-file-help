@@ -77,6 +77,35 @@ scripts/
 
 知识库目录中的 `_index.md` 用于沉淀文件、分类、备注等 Markdown 索引信息。用户手动编辑知识库中的文件后，可通过“扫描知识库”刷新索引。
 
+### SQLite 表说明
+
+| 表名 | 用途 |
+| --- | --- |
+| `categories` | 保存知识库分类树。包含分类名、父级分类、排序值和文件夹备注。 |
+| `files` | 保存文件索引。包含文件名、路径、扩展名、大小、修改时间、导入时间、分类、备注、原始路径、知识库内路径、导入模式、是否缺失等。 |
+| `tags` | 保存全局标签名。用户录入新标签时会写入这里。 |
+| `file_tags` | 保存文件和标签的多对多关系。一个文件可以有多个标签，一个标签也可以对应多个文件。 |
+| `rules` | 保存归档规则主体。包含规则名、目标分类和是否启用。 |
+| `rule_keywords` | 保存归档规则的关键词列表。导入或应用规则时用这些关键词匹配文件。 |
+| `rule_tags` | 保存归档规则自动附加的标签。规则命中后可给文件补充标签。 |
+| `settings` | 保存应用设置。比如知识库目录、归档规则作用范围、OCR 语言等。 |
+| `content_index` | 保存每个文件的全文索引状态和提取出的正文。包含索引状态、来源、索引时间、错误信息、正文长度和正文内容。 |
+| `content_terms` | 保存全文检索用的分词倒排索引。搜索时先通过词定位候选文件，避免直接扫描所有正文。 |
+| `graph_nodes` | 保存知识图谱节点。节点类型包括分类、文件、标签，`meta_json` 存储扩展信息。 |
+| `graph_edges` | 保存知识图谱关系边。关系类型包括分类层级、分类包含文件、文件标签、相似文件，并记录权重和关联原因。 |
+
+常用查看 SQL 示例：
+
+```sql
+.tables
+select id, name, parent_id, note from categories;
+select id, name, path, category_id, note from files limit 20;
+select file_id, status, source, length, error from content_index;
+select term, file_id, source from content_terms limit 50;
+select type, name, ref_id from graph_nodes limit 50;
+select type, source_id, target_id, weight, reason from graph_edges order by weight desc limit 50;
+```
+
 ## 全文检索
 
 内容索引流程：
